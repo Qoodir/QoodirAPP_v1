@@ -1,6 +1,6 @@
 {
-  "name": "Katalog Komik & Media Offline",
-  "description": "Aplikasi katalog komik, pembaca manga CBZ/PDF offline, pemutar musik, dan pemutar video dengan penyimpanan database lokal aman.",
+  "name": "eQoodir",
+  "description": "eQoodir: Aplikasi katalog komik, pembaca manga CBZ/PDF offline, pemutar musik, pemutar video, dan notepad dengan penyimpanan database lokal aman.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, FolderOpen, Trash2, ArrowUp, ArrowDown, BookMarked, CheckCircle2 } from 'lucide-react';
+import { Search, FolderOpen, Trash2, ArrowUp, ArrowDown, BookMarked, CheckCircle2, Plus } from 'lucide-react';
 import { ComicItem, OwnedVolumesMap } from '../types';
 
 interface ComicCatalogProps {
@@ -127,8 +127,20 @@ export const ComicCatalog: React.FC<ComicCatalogProps> = ({
             </button>
           </div>
 
-          <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-            TOTAL: <span className="font-bold text-[#3DDC84]">{totalVolumesOwned}</span> VOL
+          <div className="flex items-center gap-3">
+            <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+              TOTAL: <span className="font-bold text-[#3DDC84]">{totalVolumesOwned}</span> VOL
+            </div>
+            <button
+              id="btn-add-comic-catalog-bar"
+              type="button"
+              onClick={onOpenAddModal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#3DDC84] hover:bg-[#32c974] active:scale-95 text-[#0F111A] text-xs font-bold shadow-xs transition-all tracking-tight cursor-pointer"
+              title="Tambah Komik Baru"
+            >
+              <Plus size={14} className="stroke-[3]" />
+              <span>Tambah Komik</span>
+            </button>
           </div>
         </div>
       </div>

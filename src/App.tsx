@@ -31,7 +31,6 @@ import { LinkedFolderModal } from './components/LinkedFolderModal';
 import { MangaReader } from './components/MangaReader';
 import { MangaViewerModal } from './components/MangaViewerModal';
 import { MusicPlayer } from './components/MusicPlayer';
-import { FloatingMusicPlayer } from './components/FloatingMusicPlayer';
 import { VideoPlayer } from './components/VideoPlayer';
 import { ActiveVideoModal } from './components/ActiveVideoModal';
 import { Notepad } from './components/Notepad';
@@ -367,13 +366,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-[#0F111A] text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-200 font-sans">
-      {/* Top App Bar */}
+      {/* Top App Bar with integrated Floating Music Player */}
       <TopAppBar
         activeTab={activeTab}
         isDark={isDark}
         onToggleTheme={() => setIsDark((prev) => !prev)}
         onOpenAddComic={() => setIsAddComicOpen(true)}
         onOpenStats={() => setIsStatsModalOpen(true)}
+        musicQueue={musicQueue}
+        musicQueueIndex={musicQueueIndex}
+        isMusicPlayerOpen={isMusicPlayerOpen}
+        onCloseMusicPlayer={() => setIsMusicPlayerOpen(false)}
+        onOpenMusicPlayer={() => setIsMusicPlayerOpen(true)}
+        onNextMusicTrack={handleNextMusicTrack}
+        onPrevMusicTrack={handlePrevMusicTrack}
+        onOpenMusicTab={() => setActiveTab('music')}
       />
 
       {/* Main Container */}
@@ -420,16 +427,6 @@ export default function App() {
           )}
         </div>
       </main>
-
-      {/* Floating Bottom Music Player */}
-      <FloatingMusicPlayer
-        queue={musicQueue}
-        currentIndex={musicQueueIndex}
-        isOpen={isMusicPlayerOpen}
-        onClose={() => setIsMusicPlayerOpen(false)}
-        onNext={handleNextMusicTrack}
-        onPrev={handlePrevMusicTrack}
-      />
 
       {/* Bottom Navigation Bar */}
       <BottomNavBar activeTab={activeTab} onSelectTab={setActiveTab} />

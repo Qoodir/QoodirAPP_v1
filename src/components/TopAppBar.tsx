@@ -1,12 +1,22 @@
 import React from 'react';
-import { BookOpen, Moon, Sun, Plus, ShieldCheck, Smartphone } from 'lucide-react';
+import { BookOpen, Moon, Sun, ShieldCheck, Smartphone } from 'lucide-react';
+import { FloatingMusicPlayer } from './FloatingMusicPlayer';
+import { MusicTrackRecord } from '../types';
 
 interface TopAppBarProps {
   activeTab: string;
   isDark: boolean;
   onToggleTheme: () => void;
-  onOpenAddComic: () => void;
+  onOpenAddComic?: () => void;
   onOpenStats?: () => void;
+  musicQueue: MusicTrackRecord[];
+  musicQueueIndex: number;
+  isMusicPlayerOpen: boolean;
+  onCloseMusicPlayer: () => void;
+  onOpenMusicPlayer: () => void;
+  onNextMusicTrack: () => void;
+  onPrevMusicTrack: () => void;
+  onOpenMusicTab: () => void;
 }
 
 export const TopAppBar: React.FC<TopAppBarProps> = ({
@@ -14,7 +24,15 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
   isDark,
   onToggleTheme,
   onOpenAddComic,
-  onOpenStats
+  onOpenStats,
+  musicQueue,
+  musicQueueIndex,
+  isMusicPlayerOpen,
+  onCloseMusicPlayer,
+  onOpenMusicPlayer,
+  onNextMusicTrack,
+  onPrevMusicTrack,
+  onOpenMusicTab
 }) => {
   const getTabTitle = () => {
     switch (activeTab) {
@@ -73,8 +91,12 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
           </button>
 
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white leading-tight">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="font-mono font-black text-base sm:text-lg tracking-tight text-emerald-600 dark:text-[#3DDC84]">
+                eQoodir
+              </span>
+              <span className="text-slate-300 dark:text-slate-700 text-xs font-bold">•</span>
+              <h1 className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-white leading-tight">
                 {getTabTitle()}
               </h1>
               <button
@@ -96,25 +118,26 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {activeTab === 'catalog' && (
-            <button
-              id="btn-add-comic-top"
-              onClick={onOpenAddComic}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#3DDC84] hover:bg-[#32c974] active:scale-95 text-[#0F111A] text-xs font-bold shadow-xs transition-all tracking-tight"
-              title="Tambah Komik Baru"
-            >
-              <Plus size={15} className="stroke-[3]" />
-              <span className="hidden sm:inline">Tambah Komik</span>
-            </button>
-          )}
+          {/* Floating Music Player beside mode button */}
+          <FloatingMusicPlayer
+            queue={musicQueue}
+            currentIndex={musicQueueIndex}
+            isOpen={isMusicPlayerOpen}
+            onClose={onCloseMusicPlayer}
+            onOpen={onOpenMusicPlayer}
+            onNext={onNextMusicTrack}
+            onPrev={onPrevMusicTrack}
+            onOpenMusicTab={onOpenMusicTab}
+          />
 
           <button
             id="btn-theme-toggle"
+            type="button"
             onClick={onToggleTheme}
-            className="w-8 h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#12141F] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-all active:scale-95"
+            className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#12141F] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-xs shrink-0"
             title={isDark ? 'Ganti ke Mode Terang' : 'Ganti ke Mode Gelap'}
           >
-            {isDark ? <Sun size={16} className="text-[#3DDC84]" /> : <Moon size={16} className="text-slate-700" />}
+            {isDark ? <Sun size={17} className="text-[#3DDC84]" /> : <Moon size={17} className="text-slate-700 dark:text-slate-300" />}
           </button>
         </div>
       </div>
