@@ -34,6 +34,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [isUploading, setIsUploading] = useState(false);
   const [trackToDelete, setTrackToDelete] = useState<MusicTrackRecord | null>(null);
+  const [isDeletingTrack, setIsDeletingTrack] = useState(false);
 
   // Collect playlist folders
   const folderNames = Array.from(
@@ -348,7 +349,9 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
         <div
           id="modal-confirm-delete-track"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          onClick={() => setTrackToDelete(null)}
+          onClick={() => {
+            if (!isDeletingTrack) setTrackToDelete(null);
+          }}
         >
           <div
             className="w-full max-w-sm bg-white dark:bg-[#161925] rounded-2xl shadow-2xl border border-rose-500/30 overflow-hidden"
@@ -358,14 +361,16 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
               <div className="w-12 h-12 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-500 flex items-center justify-center mx-auto">
                 <Trash2 size={24} />
               </div>
+
               <div className="space-y-1">
                 <h4 className="font-mono font-bold text-sm uppercase text-slate-900 dark:text-white">
-                  HAPUS LAGU AUDIO?
+                  HAPUS LAGU DARI PLAYLIST?
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-                  Lagu ini akan dihapus dari playlist penyimpanan lokal browser Anda.
+                  File musik ini akan dihapus secara permanen dari penyimpanan offline database lokal browser Anda.
                 </p>
               </div>
+
               <div className="p-3 rounded-xl bg-slate-100 dark:bg-[#0F111A] border border-slate-200 dark:border-slate-800 text-left">
                 <p
                   className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate whitespace-nowrap block"
@@ -373,32 +378,54 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
                 >
                   🎵 {trackToDelete.title}
                 </p>
-                <p className="text-[10px] font-mono text-slate-400 mt-1 truncate">
-                  Playlist: {trackToDelete.folder || 'Favorit'}
-                </p>
+                <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 mt-1 truncate">
+                  <span>📁 {trackToDelete.folder || 'Favorit'}</span>
+                  <span>•</span>
+                  <span>
+                    {trackToDelete.fileData
+                      ? `${(trackToDelete.fileData.size / (1024 * 1024)).toFixed(2)} MB`
+                      : 'File Audio'}
+                  </span>
+                  {trackToDelete.uploadedAt && (
+                    <>
+                      <span>•</span>
+                      <span>📅 {trackToDelete.uploadedAt}</span>
+                    </>
+                  )}
+                </div>
               </div>
+
               <div className="flex items-center gap-2.5 pt-1">
                 <button
                   type="button"
                   id="btn-cancel-delete-track"
+                  disabled={isDeletingTrack}
                   onClick={() => setTrackToDelete(null)}
-                  className="flex-1 py-2.5 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-[#12141F] hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-mono font-bold transition-colors cursor-pointer"
+                  className="flex-1 py-2.5 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-[#12141F] hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-mono font-bold transition-colors cursor-pointer disabled:opacity-50"
                 >
                   BATAL
                 </button>
                 <button
                   type="button"
                   id="btn-confirm-delete-track"
-                  onClick={() => {
-                    if (trackToDelete.id) {
-                      onDeleteTrack(trackToDelete.id);
+                  disabled={isDeletingTrack}
+                  onClick={async () => {
+                    if (trackToDelete.id !== undefined) {
+                      setIsDeletingTrack(true);
+                      try {
+                        await onDeleteTrack(trackToDelete.id);
+                        setTrackToDelete(null);
+                      } catch (err) {
+                        console.error('Gagal menghapus lagu:', err);
+                      } finally {
+                        setIsDeletingTrack(false);
+                      }
                     }
-                    setTrackToDelete(null);
                   }}
-                  className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-mono font-bold flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20 transition-all cursor-pointer"
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-mono font-bold flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20 transition-all cursor-pointer disabled:opacity-50"
                 >
                   <Trash2 size={13} />
-                  <span>HAPUS</span>
+                  <span>{isDeletingTrack ? 'MENGHAPUS...' : 'HAPUS'}</span>
                 </button>
               </div>
             </div>

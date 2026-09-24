@@ -19,6 +19,7 @@ export const ActiveVideoModal: React.FC<ActiveVideoModalProps> = ({
   onClose
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playPromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     if (!isOpen || !videoBlob || !videoRef.current) return;
@@ -33,6 +34,7 @@ export const ActiveVideoModal: React.FC<ActiveVideoModalProps> = ({
     }
 
     // Add subtitle track if available
+    let subUrl: string | null = null;
     if (subtitleText) {
       let vttContent = subtitleText;
       if (!vttContent.startsWith('WEBVTT')) {
@@ -43,7 +45,7 @@ export const ActiveVideoModal: React.FC<ActiveVideoModalProps> = ({
       }
 
       const subBlob = new Blob([vttContent], { type: 'text/vtt' });
-      const subUrl = URL.createObjectURL(subBlob);
+      subUrl = URL.createObjectURL(subBlob);
 
       const track = document.createElement('track');
       track.kind = 'subtitles';
@@ -73,15 +75,70 @@ export const ActiveVideoModal: React.FC<ActiveVideoModalProps> = ({
     video.addEventListener('loadedmetadata', onLoadedMetadata);
     video.addEventListener('timeupdate', onTimeUpdate);
 
-    video.play().catch((err) => console.log('Video autoplay error:', err));
+    let isCancelled = false;
+    try {
+      const promise = video.play();
+      if (promise !== undefined) {
+        playPromiseRef.current = promise;
+        promise
+          .then(() => {
+            playPromiseRef.current = null;
+          })
+          .catch((err: any) => {
+            playPromiseRef.current = null;
+            if (err?.name !== 'AbortError' && !isCancelled) {
+              console.log('Video autoplay error:', err);
+            }
+          });
+      }
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        console.log('Video play invocation exception:', e);
+      }
+    }
 
     return () => {
+      isCancelled = true;
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('timeupdate', onTimeUpdate);
-      video.pause();
+
+      const safeStopVideo = () => {
+        try {
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+        } catch (e) {}
+      };
+
+      if (playPromiseRef.current) {
+        playPromiseRef.current
+          .then(safeStopVideo)
+          .catch(safeStopVideo);
+      } else {
+        safeStopVideo();
+      }
+
       URL.revokeObjectURL(url);
+      if (subUrl) {
+        URL.revokeObjectURL(subUrl);
+      }
     };
   }, [isOpen, videoBlob, videoName, subtitleText, subtitleName]);
+
+  const handleClose = () => {
+    if (videoRef.current) {
+      if (playPromiseRef.current) {
+        playPromiseRef.current
+          .then(() => {
+            if (videoRef.current) videoRef.current.pause();
+          })
+          .catch(() => {});
+      } else {
+        videoRef.current.pause();
+      }
+    }
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -92,8 +149,8 @@ export const ActiveVideoModal: React.FC<ActiveVideoModalProps> = ({
         <div className="flex items-center gap-3 overflow-hidden">
           <button
             id="btn-close-active-video"
-            onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0F111A] hover:bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-white transition-colors"
+            onClick={handleClose}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0F111A] hover:bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-white transition-colors cursor-pointer"
           >
             <ArrowLeft size={14} className="text-[#3DDC84]" />
             <span>KEMBALI</span>

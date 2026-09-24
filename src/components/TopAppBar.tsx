@@ -26,8 +26,8 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         return 'Pemutar Musik Offline';
       case 'video':
         return 'Pemutar Video';
-      case 'kotlin':
-        return 'Android Kotlin & Room DB';
+      case 'notepad':
+        return 'Notepad & Catatan';
       default:
         return 'Katalog Komik';
     }
@@ -43,8 +43,8 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         return 'Pemutar audio offline & playlist';
       case 'video':
         return 'Tonton video lokal dengan subtitle';
-      case 'kotlin':
-        return 'Source code Android Studio & database aman';
+      case 'notepad':
+        return 'Catatan offline, wishlist komik & review';
       default:
         return 'Aplikasi Media & Komik Offline';
     }

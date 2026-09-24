@@ -34,11 +34,11 @@ import { MusicPlayer } from './components/MusicPlayer';
 import { FloatingMusicPlayer } from './components/FloatingMusicPlayer';
 import { VideoPlayer } from './components/VideoPlayer';
 import { ActiveVideoModal } from './components/ActiveVideoModal';
-import { KotlinAndroidProjectViewer } from './components/KotlinAndroidProjectViewer';
+import { Notepad } from './components/Notepad';
 import { StatsModal } from './components/StatsModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'catalog' | 'manga' | 'music' | 'video' | 'kotlin'>('catalog');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'manga' | 'music' | 'video' | 'notepad'>('catalog');
   const [isDark, setIsDark] = useState<boolean>(() => {
     return localStorage.getItem('theme') === 'dark';
   });
@@ -301,6 +301,7 @@ export default function App() {
     await deleteMusicTrack(id);
     const updated = await getAllMusicTracks();
     setMusicTracks(updated);
+    setMusicQueue((prev) => prev.filter((t) => t.id !== id));
   };
 
   const handlePlayMusicQueue = (queue: MusicTrackRecord[], startIndex = 0) => {
@@ -377,45 +378,47 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-3 sm:p-4">
-        {activeTab === 'catalog' && (
-          <ComicCatalog
-            comics={comics}
-            ownedVolumes={ownedVolumes}
-            onSelectComic={(c) => setSelectedComicForDetail(c)}
-            onDeleteComic={handleDeleteComic}
-            onMoveOrder={handleMoveOrder}
-            onOpenLinkedFolder={(folder) => setLinkedFolderToOpen(folder)}
-            onOpenAddModal={() => setIsAddComicOpen(true)}
-          />
-        )}
+        <div key={activeTab} className="tab-transition">
+          {activeTab === 'catalog' && (
+            <ComicCatalog
+              comics={comics}
+              ownedVolumes={ownedVolumes}
+              onSelectComic={(c) => setSelectedComicForDetail(c)}
+              onDeleteComic={handleDeleteComic}
+              onMoveOrder={handleMoveOrder}
+              onOpenLinkedFolder={(folder) => setLinkedFolderToOpen(folder)}
+              onOpenAddModal={() => setIsAddComicOpen(true)}
+            />
+          )}
 
-        {activeTab === 'manga' && (
-          <MangaReader
-            mangaFiles={mangaFiles}
-            onAddFiles={handleAddMangaFiles}
-            onDeleteFile={handleDeleteMangaFile}
-            onUpdateStatus={handleUpdateMangaStatus}
-            onUpdateFolder={handleUpdateMangaFolder}
-            onReadManga={handleReadManga}
-          />
-        )}
+          {activeTab === 'manga' && (
+            <MangaReader
+              mangaFiles={mangaFiles}
+              onAddFiles={handleAddMangaFiles}
+              onDeleteFile={handleDeleteMangaFile}
+              onUpdateStatus={handleUpdateMangaStatus}
+              onUpdateFolder={handleUpdateMangaFolder}
+              onReadManga={handleReadManga}
+            />
+          )}
 
-        {activeTab === 'music' && (
-          <MusicPlayer
-            tracks={musicTracks}
-            onAddTracks={handleAddMusicTracks}
-            onDeleteTrack={handleDeleteMusicTrack}
-            onPlayQueue={handlePlayMusicQueue}
-          />
-        )}
+          {activeTab === 'music' && (
+            <MusicPlayer
+              tracks={musicTracks}
+              onAddTracks={handleAddMusicTracks}
+              onDeleteTrack={handleDeleteMusicTrack}
+              onPlayQueue={handlePlayMusicQueue}
+            />
+          )}
 
-        {activeTab === 'video' && (
-          <VideoPlayer onPlayVideo={handlePlayVideo} />
-        )}
+          {activeTab === 'video' && (
+            <VideoPlayer onPlayVideo={handlePlayVideo} />
+          )}
 
-        {activeTab === 'kotlin' && (
-          <KotlinAndroidProjectViewer />
-        )}
+          {activeTab === 'notepad' && (
+            <Notepad />
+          )}
+        </div>
       </main>
 
       {/* Floating Bottom Music Player */}

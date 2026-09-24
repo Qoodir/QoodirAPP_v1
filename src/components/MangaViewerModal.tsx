@@ -97,7 +97,7 @@ const MangaPageItem: React.FC<MangaPageItemProps> = ({
     <div
       ref={containerRef}
       id={`manga-page-${index + 1}`}
-      className="w-full relative min-h-[260px] sm:min-h-[420px] bg-[#161925] rounded-xl border border-slate-800/80 shadow-lg overflow-hidden flex flex-col items-center justify-center transition-all"
+      className="w-full relative min-h-[260px] sm:min-h-[420px] bg-[#161925] rounded-none border-b border-slate-900/80 overflow-hidden flex flex-col items-center justify-center transition-all"
     >
       {loading && !imgSrc && (
         <div className="py-24 flex flex-col items-center justify-center space-y-2 text-slate-400 font-mono">
@@ -117,7 +117,7 @@ const MangaPageItem: React.FC<MangaPageItemProps> = ({
           <button
             type="button"
             onClick={() => setRetryCount((c) => c + 1)}
-            className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[#3DDC84] text-xs font-mono border border-slate-700 transition-colors"
+            className="px-3 py-1 rounded-none bg-slate-800 hover:bg-slate-700 text-[#3DDC84] text-xs font-mono border border-slate-700 transition-colors cursor-pointer"
           >
             Coba Muat Ulang
           </button>
@@ -125,15 +125,15 @@ const MangaPageItem: React.FC<MangaPageItemProps> = ({
       )}
 
       {imgSrc && (
-        <div className="w-full relative">
+        <div className="w-full relative rounded-none">
           <img
             src={imgSrc}
             alt={`Halaman ${index + 1}`}
-            className="w-full h-auto object-contain block mx-auto select-none"
+            className="w-full h-auto object-contain block mx-auto select-none rounded-none"
             loading="lazy"
             decoding="async"
           />
-          <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/80 font-mono text-[9px] text-[#3DDC84] border border-slate-800/90 shadow-xs pointer-events-none backdrop-blur-xs">
+          <div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-none bg-black/85 font-mono text-[9px] text-[#3DDC84] border border-slate-800/90 shadow-xs pointer-events-none backdrop-blur-xs">
             {index + 1} / {totalPages}
           </div>
         </div>
@@ -359,7 +359,7 @@ export const MangaViewerModal: React.FC<MangaViewerModalProps> = ({
       {/* Reader Canvas Area */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto bg-[#0F111A] flex flex-col items-center p-2 sm:p-4 relative"
+        className="flex-1 overflow-y-auto bg-[#0F111A] flex flex-col items-center px-0 py-1 sm:px-2 sm:py-2 relative"
       >
         {loading && (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-slate-400 space-y-3 font-mono">
@@ -401,7 +401,7 @@ export const MangaViewerModal: React.FC<MangaViewerModalProps> = ({
 
         {!loading && !error && session && totalPages > 0 && (
           <div
-            className="flex flex-col items-center space-y-3 transition-all duration-150 w-full"
+            className="flex flex-col items-center space-y-1 sm:space-y-1.5 transition-all duration-150 w-full"
             style={{ width: `${zoomLevel}%`, maxWidth: '960px' }}
           >
             {Array.from({ length: totalPages }).map((_, index) => (

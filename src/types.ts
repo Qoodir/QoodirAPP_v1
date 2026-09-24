@@ -47,3 +47,16 @@ export interface KotlinFilePreview {
   code: string;
   description: string;
 }
+
+export interface NoteItem {
+  id: string;
+  title: string;
+  content: string;
+  category: 'Komik' | 'Wishlist' | 'Review' | 'Umum';
+  isPinned?: boolean;
+  isLocked?: boolean;
+  password?: string;
+  color?: 'emerald' | 'blue' | 'amber' | 'purple' | 'rose';
+  createdAt: number;
+  updatedAt: number;
+}

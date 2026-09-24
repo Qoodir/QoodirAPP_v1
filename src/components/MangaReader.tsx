@@ -882,6 +882,12 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
                   <span>📁 {fileToDelete.folder || 'Tanpa Folder'}</span>
                   <span>•</span>
                   <span>{fileToDelete.fileSize}</span>
+                  {fileToDelete.uploadedAt && (
+                    <>
+                      <span>•</span>
+                      <span>📅 {fileToDelete.uploadedAt}</span>
+                    </>
+                  )}
                 </div>
               </div>
 
