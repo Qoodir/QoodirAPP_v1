@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ComicItem,
   OwnedVolumesMap,
@@ -36,8 +36,14 @@ import { ActiveVideoModal } from './components/ActiveVideoModal';
 import { Notepad } from './components/Notepad';
 import { StatsModal } from './components/StatsModal';
 
+export const TAB_ORDER = ['catalog', 'manga', 'notepad', 'music', 'video'] as const;
+export type TabType = typeof TAB_ORDER[number];
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'catalog' | 'manga' | 'music' | 'video' | 'notepad'>('catalog');
+  const [activeTab, setActiveTab] = useState<TabType>('notepad');
+  const [transitionAnimation, setTransitionAnimation] = useState<'tab-transition' | 'tab-slide-left' | 'tab-slide-right'>('tab-transition');
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+
   const [isDark, setIsDark] = useState<boolean>(() => {
     return localStorage.getItem('theme') === 'dark';
   });
@@ -50,6 +56,12 @@ export default function App() {
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [linkedFolderToOpen, setLinkedFolderToOpen] = useState<string | null>(null);
   const [comicToDelete, setComicToDelete] = useState<ComicItem | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Upload modal triggers from TopAppBar
+  const [isUploadMangaOpen, setIsUploadMangaOpen] = useState(false);
+  const [isUploadMusicOpen, setIsUploadMusicOpen] = useState(false);
+  const [isUploadVideoOpen, setIsUploadVideoOpen] = useState(false);
 
   // Manga Files
   const [mangaFiles, setMangaFiles] = useState<MangaFileRecord[]>([]);
@@ -296,6 +308,12 @@ export default function App() {
     setMusicTracks(updated);
   };
 
+  const handleAddCustomTrack = async (track: Omit<MusicTrackRecord, 'id'>) => {
+    await addMusicTrack(track);
+    const updated = await getAllMusicTracks();
+    setMusicTracks(updated);
+  };
+
   const handleDeleteMusicTrack = async (id: number) => {
     await deleteMusicTrack(id);
     const updated = await getAllMusicTracks();
@@ -364,15 +382,155 @@ export default function App() {
     ? Math.min(100, Math.round((totalVolumesOwned / totalVolumesTotal) * 100))
     : 0;
 
+  const isAnyModalOpen = Boolean(
+    isAddComicOpen ||
+    selectedComicForDetail ||
+    linkedFolderToOpen ||
+    mangaViewerState.isOpen ||
+    activeVideoState.isOpen ||
+    isStatsModalOpen ||
+    comicToDelete ||
+    isUploadMangaOpen ||
+    isUploadMusicOpen ||
+    isUploadVideoOpen
+  );
+
+  const [dragOffset, setDragOffset] = useState<number>(0);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+
+  const switchTab = useCallback((targetTab: TabType, explicitDirection?: 'left' | 'right') => {
+    setActiveTab((prevTab) => {
+      if (targetTab === prevTab) return prevTab;
+
+      const currentIndex = TAB_ORDER.indexOf(prevTab);
+      const targetIndex = TAB_ORDER.indexOf(targetTab);
+
+      let direction = explicitDirection;
+      if (!direction) {
+        direction = targetIndex > currentIndex ? 'left' : 'right';
+      }
+
+      if (direction === 'left') {
+        setTransitionAnimation('tab-slide-left');
+      } else {
+        setTransitionAnimation('tab-slide-right');
+      }
+
+      return targetTab;
+    });
+    setSearchQuery('');
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (isAnyModalOpen) return;
+    if (e.touches.length !== 1) return;
+
+    const target = e.target as HTMLElement | null;
+    if (target) {
+      const tagName = target.tagName.toLowerCase();
+      if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+        return;
+      }
+      if (target.closest('input[type="range"], .overflow-x-auto, [data-prevent-swipe]')) {
+        return;
+      }
+    }
+
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      time: Date.now()
+    };
+    setIsDragging(false);
+    setDragOffset(0);
+  }, [isAnyModalOpen]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || isAnyModalOpen) return;
+    if (e.touches.length !== 1) return;
+
+    const currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    const deltaX = currentX - touchStartRef.current.x;
+    const deltaY = currentY - touchStartRef.current.y;
+
+    // If vertical scrolling is clearly dominant, don't hijack
+    if (!isDragging && Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 8) {
+      return;
+    }
+
+    // When horizontal movement passes initial threshold
+    if (Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+      const currentIndex = TAB_ORDER.indexOf(activeTab);
+      const isAtStart = currentIndex === 0 && deltaX > 0;
+      const isAtEnd = currentIndex === TAB_ORDER.length - 1 && deltaX < 0;
+
+      // Elastic rubber-band resistance at boundaries, silky smooth 0.42x damping elsewhere
+      const resistance = isAtStart || isAtEnd ? 0.15 : 0.42;
+      const dampedOffset = Math.max(-90, Math.min(90, deltaX * resistance));
+
+      setIsDragging(true);
+      setDragOffset(dampedOffset);
+    }
+  }, [isAnyModalOpen, isDragging, activeTab]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || isAnyModalOpen) {
+      touchStartRef.current = null;
+      setIsDragging(false);
+      setDragOffset(0);
+      return;
+    }
+
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    const elapsed = Date.now() - touchStartRef.current.time;
+    touchStartRef.current = null;
+
+    const currentIndex = TAB_ORDER.indexOf(activeTab);
+
+    // Responsive swipe criteria: flick gesture or sufficient swipe distance
+    const isFlick = elapsed < 320 && Math.abs(deltaX) >= 28;
+    const isSwipe = elapsed < 650 && Math.abs(deltaX) >= 42;
+
+    if ((isFlick || isSwipe) && Math.abs(deltaX) > Math.abs(deltaY) * 1.15) {
+      if (deltaX < 0 && currentIndex < TAB_ORDER.length - 1) {
+        // Swiped Left -> Move to Next Tab
+        switchTab(TAB_ORDER[currentIndex + 1], 'left');
+      } else if (deltaX > 0 && currentIndex > 0) {
+        // Swiped Right -> Move to Previous Tab
+        switchTab(TAB_ORDER[currentIndex - 1], 'right');
+      }
+    }
+
+    setIsDragging(false);
+    setDragOffset(0);
+  }, [isAnyModalOpen, activeTab, switchTab]);
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-[#0F111A] text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-200 font-sans">
-      {/* Top App Bar with integrated Floating Music Player */}
+      {/* Top App Bar with consolidated Upload Menu and Floating Music Player */}
       <TopAppBar
         activeTab={activeTab}
         isDark={isDark}
         onToggleTheme={() => setIsDark((prev) => !prev)}
         onOpenAddComic={() => setIsAddComicOpen(true)}
+        onOpenUploadManga={() => {
+          switchTab('manga');
+          setIsUploadMangaOpen(true);
+        }}
+        onOpenUploadMusic={() => {
+          switchTab('music');
+          setIsUploadMusicOpen(true);
+        }}
+        onOpenUploadVideo={() => {
+          switchTab('video');
+          setIsUploadVideoOpen(true);
+        }}
         onOpenStats={() => setIsStatsModalOpen(true)}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
         musicQueue={musicQueue}
         musicQueueIndex={musicQueueIndex}
         isMusicPlayerOpen={isMusicPlayerOpen}
@@ -380,12 +538,29 @@ export default function App() {
         onOpenMusicPlayer={() => setIsMusicPlayerOpen(true)}
         onNextMusicTrack={handleNextMusicTrack}
         onPrevMusicTrack={handlePrevMusicTrack}
-        onOpenMusicTab={() => setActiveTab('music')}
+        onOpenMusicTab={() => switchTab('music')}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-3 sm:p-4">
-        <div key={activeTab} className="tab-transition">
+      {/* Main Container with Swipe Gesture and Smooth Drag Feedback Support */}
+      <main
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={() => {
+          touchStartRef.current = null;
+          setIsDragging(false);
+          setDragOffset(0);
+        }}
+        className="flex-1 max-w-4xl w-full mx-auto p-3 sm:p-4 touch-pan-y overflow-x-clip"
+      >
+        <div
+          key={activeTab}
+          className={transitionAnimation}
+          style={{
+            transform: dragOffset !== 0 ? `translate3d(${dragOffset}px, 0, 0)` : undefined,
+            transition: isDragging ? 'none' : 'transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)'
+          }}
+        >
           {activeTab === 'catalog' && (
             <ComicCatalog
               comics={comics}
@@ -395,6 +570,7 @@ export default function App() {
               onMoveOrder={handleMoveOrder}
               onOpenLinkedFolder={(folder) => setLinkedFolderToOpen(folder)}
               onOpenAddModal={() => setIsAddComicOpen(true)}
+              searchQuery={searchQuery}
             />
           )}
 
@@ -406,6 +582,9 @@ export default function App() {
               onUpdateStatus={handleUpdateMangaStatus}
               onUpdateFolder={handleUpdateMangaFolder}
               onReadManga={handleReadManga}
+              isUploadModalOpen={isUploadMangaOpen}
+              onCloseUploadModal={() => setIsUploadMangaOpen(false)}
+              searchQuery={searchQuery}
             />
           )}
 
@@ -413,23 +592,35 @@ export default function App() {
             <MusicPlayer
               tracks={musicTracks}
               onAddTracks={handleAddMusicTracks}
+              onAddCustomTrack={handleAddCustomTrack}
               onDeleteTrack={handleDeleteMusicTrack}
               onPlayQueue={handlePlayMusicQueue}
+              isUploadModalOpen={isUploadMusicOpen}
+              onCloseUploadModal={() => setIsUploadMusicOpen(false)}
+              searchQuery={searchQuery}
             />
           )}
 
           {activeTab === 'video' && (
-            <VideoPlayer onPlayVideo={handlePlayVideo} />
+            <VideoPlayer
+              onPlayVideo={handlePlayVideo}
+              isUploadModalOpen={isUploadVideoOpen}
+              onCloseUploadModal={() => setIsUploadVideoOpen(false)}
+              searchQuery={searchQuery}
+            />
           )}
 
           {activeTab === 'notepad' && (
-            <Notepad />
+            <Notepad searchQuery={searchQuery} />
           )}
         </div>
       </main>
 
       {/* Bottom Navigation Bar */}
-      <BottomNavBar activeTab={activeTab} onSelectTab={setActiveTab} />
+      <BottomNavBar
+        activeTab={activeTab}
+        onSelectTab={(tab) => switchTab(tab)}
+      />
 
       {/* Modals */}
       <AddComicModal

@@ -1,45 +1,104 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Upload,
   Music,
   Play,
-  Shuffle,
-  Folder,
-  Download,
   Trash2,
-  ChevronDown,
-  ChevronUp,
   FolderPlus,
-  Disc
+  Disc,
+  Search,
+  Check,
+  Folder,
+  X,
+  Volume2
 } from 'lucide-react';
 import { MusicTrackRecord } from '../types';
-import { triggerDownload } from '../utils/mangaParser';
+import { formatFileSize } from '../utils/mangaParser';
 
-interface MusicPlayerProps {
+export interface MusicPlayerProps {
   tracks: MusicTrackRecord[];
   onAddTracks: (files: File[], folder: string) => Promise<void>;
+  onAddCustomTrack?: (track: Omit<MusicTrackRecord, 'id'>) => Promise<void>;
   onDeleteTrack: (id: number) => Promise<void>;
   onPlayQueue: (queue: MusicTrackRecord[], startIndex?: number) => void;
+  isUploadModalOpen?: boolean;
+  onCloseUploadModal?: () => void;
+  searchQuery?: string;
 }
 
 export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   tracks,
   onAddTracks,
   onDeleteTrack,
-  onPlayQueue
+  onPlayQueue,
+  isUploadModalOpen,
+  onCloseUploadModal,
+  searchQuery: externalSearchQuery
 }) => {
+  const [internalSearchQuery, setInternalSearchQuery] = useState('');
+  const [selectedFolderFilter, setSelectedFolderFilter] = useState('ALL');
+
+  const activeSearch = externalSearchQuery !== undefined ? externalSearchQuery : internalSearchQuery;
+  const deferredSearch = React.useDeferredValue(activeSearch);
+
+  // Upload modal state
+  const [internalUploadModalOpen, setInternalUploadModalOpen] = useState(false);
+  const isModalOpen = isUploadModalOpen !== undefined ? isUploadModalOpen : internalUploadModalOpen;
+
+  const closeModal = () => {
+    if (onCloseUploadModal) onCloseUploadModal();
+    setInternalUploadModalOpen(false);
+    setSelectedFiles([]);
+  };
+
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [targetFolder, setTargetFolder] = useState('Favorit');
   const [newFolderName, setNewFolderName] = useState('');
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [isUploading, setIsUploading] = useState(false);
+
+  // Delete modal state
   const [trackToDelete, setTrackToDelete] = useState<MusicTrackRecord | null>(null);
   const [isDeletingTrack, setIsDeletingTrack] = useState(false);
 
-  // Collect playlist folders
-  const folderNames = Array.from(
-    new Set(tracks.map((t) => t.folder || 'Favorit').filter(Boolean))
-  ).sort();
+  // Folders list
+  const existingFolders = useMemo(() => {
+    const set = new Set<string>();
+    tracks.forEach((t) => set.add(t.folder || 'Favorit'));
+    if (!set.has('Favorit')) set.add('Favorit');
+    return Array.from(set).sort();
+  }, [tracks]);
+
+  // Filtered tracks
+  const filteredTracks = useMemo(() => {
+    let result = [...tracks];
+    const q = deferredSearch.trim().toLowerCase();
+
+    if (selectedFolderFilter !== 'ALL') {
+      result = result.filter((t) => (t.folder || 'Favorit') === selectedFolderFilter);
+    }
+
+    if (q) {
+      result = result.filter(
+        (t) =>
+          t.title.toLowerCase().includes(q) ||
+          t.fileName.toLowerCase().includes(q) ||
+          (t.folder || '').toLowerCase().includes(q)
+      );
+    }
+
+    return result;
+  }, [tracks, selectedFolderFilter, deferredSearch]);
+
+  // Group filtered tracks by folder
+  const groupedTracks = useMemo(() => {
+    const map: Record<string, MusicTrackRecord[]> = {};
+    filteredTracks.forEach((t) => {
+      const f = t.folder || 'Favorit';
+      if (!map[f]) map[f] = [];
+      map[f].push(t);
+    });
+    return map;
+  }, [filteredTracks]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -47,16 +106,16 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
     }
   };
 
-  const handleSaveToStorage = async () => {
+  const handleSaveTracks = async () => {
     if (selectedFiles.length === 0) {
-      alert('Pilih file audio (.mp3, .wav, .m4a) terlebih dahulu!');
+      alert('Pilih file musik audio terlebih dahulu!');
       return;
     }
 
     let finalFolder = targetFolder;
     if (targetFolder === '__NEW__') {
       if (!newFolderName.trim()) {
-        alert('Tuliskan nama folder playlist baru!');
+        alert('Tuliskan nama folder baru!');
         return;
       }
       finalFolder = newFolderName.trim();
@@ -67,367 +126,359 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
       await onAddTracks(selectedFiles, finalFolder);
       setSelectedFiles([]);
       setNewFolderName('');
-      setTargetFolder(finalFolder);
-      setExpandedFolders((prev) => ({ ...prev, [finalFolder]: true }));
-      alert(`Berhasil menyimpan ${selectedFiles.length} file musik ke database lokal!`);
+      closeModal();
     } catch (err) {
       console.error(err);
-      alert('Gagal menyimpan musik.');
+      alert('Gagal menyimpan file musik.');
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handlePlayTemporary = () => {
-    if (selectedFiles.length === 0) {
-      alert('Pilih file audio terlebih dahulu!');
-      return;
-    }
-
-    const tempQueue: MusicTrackRecord[] = selectedFiles.map((file) => ({
-      title: file.name.replace(/\.[^/.]+$/, ''),
-      fileName: file.name,
-      fileData: file,
-      folder: 'Playlist Sementara',
-      uploadedAt: new Date().toLocaleDateString('id-ID')
-    }));
-
-    onPlayQueue(tempQueue, 0);
-  };
-
-  const handlePlayFolder = (folderName: string) => {
-    const folderTracks = tracks.filter((t) => (t.folder || 'Favorit') === folderName);
-    if (folderTracks.length > 0) {
-      onPlayQueue(folderTracks, 0);
+  const confirmDelete = async () => {
+    if (!trackToDelete || trackToDelete.id === undefined) return;
+    setIsDeletingTrack(true);
+    try {
+      await onDeleteTrack(trackToDelete.id);
+      setTrackToDelete(null);
+    } catch (err) {
+      console.error(err);
+      alert('Gagal menghapus lagu.');
+    } finally {
+      setIsDeletingTrack(false);
     }
   };
-
-  const handlePlayAllCombined = () => {
-    if (tracks.length === 0) {
-      alert('Belum ada lagu offline dalam penyimpanan.');
-      return;
-    }
-    onPlayQueue(tracks, 0);
-  };
-
-  const toggleFolder = (fName: string) => {
-    setExpandedFolders((prev) => ({ ...prev, [fName]: !prev[fName] }));
-  };
-
-  // Group by folder
-  const groupedTracks: Record<string, MusicTrackRecord[]> = {};
-  tracks.forEach((track) => {
-    const f = track.folder || 'Favorit';
-    if (!groupedTracks[f]) groupedTracks[f] = [];
-    groupedTracks[f].push(track);
-  });
 
   return (
     <div className="space-y-4 pb-24">
-      {/* Upload Box Card */}
-      <div className="bg-white dark:bg-[#161925] p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
-        <div className="flex items-center gap-2 text-slate-900 dark:text-white">
-          <div className="w-5 h-5 bg-[#3DDC84] rounded flex items-center justify-center text-[#0F111A]">
-            <Music size={13} className="stroke-[2.5]" />
+      {/* Folder Filters & Quick Play Bar */}
+      <div className="bg-white dark:bg-[#161925] p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setSelectedFolderFilter('ALL')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold transition-all ${
+                selectedFolderFilter === 'ALL'
+                  ? 'bg-[#3DDC84] text-[#0F111A] shadow-xs'
+                  : 'bg-slate-100 dark:bg-[#12141F] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
+              }`}
+            >
+              SEMUA ({tracks.length})
+            </button>
+            {existingFolders.map((f) => {
+              const count = tracks.filter((t) => (t.folder || 'Favorit') === f).length;
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setSelectedFolderFilter(f)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold transition-all ${
+                    selectedFolderFilter === f
+                      ? 'bg-[#3DDC84] text-[#0F111A] shadow-xs'
+                      : 'bg-slate-100 dark:bg-[#12141F] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  📁 {f} ({count})
+                </button>
+              );
+            })}
           </div>
-          <h3 className="text-xs font-mono font-bold tracking-tight text-slate-900 dark:text-white uppercase">
-            UPLOAD MUSIK OFFLINE (.MP3, .WAV, .M4A)
-          </h3>
-        </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-          Pilih file musik untuk diputar di background player atau simpan ke memori lokal secara aman.
-        </p>
 
-        <div className="space-y-3 pt-1">
-          <div>
-            <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1">
-              1. PILIH FILE AUDIO:
-            </label>
-            <input
-              id="input-music-file"
-              type="file"
-              accept="audio/*,.mp3,.wav,.m4a,.aac,.flac"
-              multiple
-              onChange={handleFileChange}
-              className="w-full text-xs font-mono text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-mono file:font-bold file:bg-[#3DDC84]/20 file:text-emerald-800 dark:file:text-[#3DDC84] hover:file:bg-[#3DDC84]/30 cursor-pointer"
-            />
-            {selectedFiles.length > 0 && (
-              <p className="text-[11px] font-mono text-emerald-600 dark:text-[#3DDC84] font-bold mt-1">
-                ✓ {selectedFiles.length} FILE AUDIO TERPILIH
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <div>
-              <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1">
-                2. PILIH FOLDER PLAYLIST:
-              </label>
-              <select
-                id="select-music-folder"
-                value={targetFolder}
-                onChange={(e) => setTargetFolder(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
-              >
-                <option value="Favorit">⭐ Favorit</option>
-                {folderNames
-                  .filter((f) => f !== 'Favorit')
-                  .map((f) => (
-                    <option key={f} value={f}>
-                      📁 {f}
-                    </option>
-                  ))}
-                <option value="__NEW__">➕ Buat Folder Playlist Baru...</option>
-              </select>
+          <div className="flex items-center gap-2.5">
+            <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+              TOTAL: <span className="font-bold text-[#3DDC84]">{tracks.length}</span> LAGU
             </div>
 
-            {targetFolder === '__NEW__' && (
-              <div>
-                <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1">
-                  NAMA PLAYLIST BARU:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Contoh: Anime OST, Lofi Chill..."
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
-                />
-              </div>
+            {filteredTracks.length > 0 && (
+              <button
+                type="button"
+                onClick={() => onPlayQueue(filteredTracks, 0)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-[#3DDC84]/50 bg-emerald-500/10 hover:bg-emerald-500/20 text-[#3DDC84] text-xs font-mono font-bold tracking-tight shadow-xs transition-all cursor-pointer"
+                title="Putar semua lagu yang tampil"
+              >
+                <Play size={12} fill="currentColor" />
+                <span>PUTAR SEMUA</span>
+              </button>
             )}
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              id="btn-play-music-temp"
-              type="button"
-              onClick={handlePlayTemporary}
-              disabled={selectedFiles.length === 0}
-              className="flex-1 py-2 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#12141F] hover:border-[#3DDC84]/50 disabled:opacity-50 text-slate-700 dark:text-slate-200 text-xs font-mono font-bold shadow-xs transition-colors flex items-center justify-center gap-1.5"
-            >
-              <Play size={13} fill="currentColor" className="text-[#3DDC84]" />
-              <span>MASUKKAN PLAYLIST SAJA</span>
-            </button>
-
-            <button
-              id="btn-save-music-db"
-              type="button"
-              onClick={handleSaveToStorage}
-              disabled={selectedFiles.length === 0 || isUploading}
-              className="flex-1 py-2 px-3 rounded-lg bg-[#3DDC84] hover:bg-[#32c974] disabled:opacity-50 text-[#0F111A] text-xs font-mono font-bold tracking-tight shadow-xs transition-colors flex items-center justify-center gap-1.5"
-            >
-              <FolderPlus size={13} className="stroke-[2.5]" />
-              <span>{isUploading ? 'MENYIMPAN...' : '+ SIMPAN KE DB'}</span>
-            </button>
           </div>
         </div>
       </div>
 
-      {/* Putar Semua Musik Button */}
-      <button
-        id="btn-play-all-music"
-        type="button"
-        onClick={handlePlayAllCombined}
-        disabled={tracks.length === 0}
-        className="w-full py-2.5 px-4 rounded-xl bg-[#3DDC84] hover:bg-[#32c974] active:scale-[0.99] disabled:opacity-50 text-[#0F111A] font-mono font-bold text-xs uppercase tracking-tight shadow-md flex items-center justify-center gap-2 transition-all"
-      >
-        <Shuffle size={15} />
-        <span>PUTAR SEMUA MUSIK GABUNGAN [{tracks.length} LAGU]</span>
-      </button>
-
-      {/* Music Playlist Folders */}
-      {Object.keys(groupedTracks).length === 0 ? (
-        <div className="bg-white dark:bg-[#161925] p-8 rounded-xl border border-slate-200 dark:border-slate-800 text-center space-y-2">
-          <Disc size={32} className="mx-auto text-slate-400" />
-          <h4 className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
-            BELUM ADA LAGU OFFLINE TERSIMPAN
-          </h4>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-            Upload file MP3 di atas untuk menikmati pemutar musik offline lokal.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {Object.entries(groupedTracks).map(([folderName, folderTracks]) => {
-            const isExpanded = expandedFolders[folderName] !== false;
-
-            return (
-              <div
-                key={folderName}
-                className="bg-white dark:bg-[#161925] rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs"
-              >
-                {/* Accordion Header */}
-                <div
-                  onClick={() => toggleFolder(folderName)}
-                  className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-[#1C202F] transition-colors border-b border-slate-100 dark:border-slate-800"
-                >
-                  <div className="flex items-center gap-2">
-                    <Folder size={16} className="text-[#3DDC84]" />
-                    <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200">
-                      {folderName}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      [{folderTracks.length} LAGU]
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePlayFolder(folderName);
-                      }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#3DDC84] hover:bg-[#32c974] text-[#0F111A] text-[10px] font-mono font-bold shadow-xs transition-colors"
-                    >
-                      <Play size={10} fill="currentColor" />
-                      PUTAR FOLDER
-                    </button>
-                    <span className="text-slate-400">
-                      {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                    </span>
-                  </div>
+      {/* Upload Pop Up Modal */}
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-200"
+          onClick={() => {
+            if (!isUploading) closeModal();
+          }}
+        >
+          <div
+            className="w-full max-w-lg bg-white dark:bg-[#161925] rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#1C202F]">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-[#3DDC84] rounded-lg flex items-center justify-center text-[#0F111A]">
+                  <Upload size={14} className="stroke-[2.5]" />
                 </div>
+                <div>
+                  <h3 className="text-xs font-mono font-bold tracking-tight text-slate-900 dark:text-white uppercase leading-none">
+                    UPLOAD MUSIK OFFLINE
+                  </h3>
+                  <p className="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+                    Mendukung format MP3, WAV, M4A, FLAC, OGG, AAC
+                  </p>
+                </div>
+              </div>
 
-                {/* Track Items */}
-                {isExpanded && (
-                  <div className="p-3 bg-slate-50/50 dark:bg-[#0F111A]/40 space-y-2">
-                    {folderTracks.map((track, trackIdx) => (
-                      <div
-                        key={track.id || track.fileName}
-                        className="p-3 rounded-lg bg-white dark:bg-[#161925] border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shadow-2xs hover:border-[#3DDC84]/50 transition-all"
-                      >
-                        <div className="flex items-center gap-3 overflow-hidden min-w-0">
-                          <div className="w-8 h-8 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-[#3DDC84] flex items-center justify-center shrink-0">
-                            <Music size={14} />
-                          </div>
-                          <div className="truncate">
-                            <p className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate" title={track.title}>
-                              {track.title}
-                            </p>
-                            <p className="text-[10px] font-mono text-slate-400">
-                              {track.fileName} • {track.uploadedAt}
-                            </p>
-                          </div>
-                        </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isUploading) closeModal();
+                }}
+                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center justify-center transition-all cursor-pointer"
+                title="Tutup pop up"
+              >
+                <X size={15} />
+              </button>
+            </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            id={`btn-play-track-${track.id}`}
-                            onClick={() => onPlayQueue(folderTracks, trackIdx)}
-                            className="px-3 py-1.5 rounded bg-[#3DDC84] hover:bg-[#32c974] text-[#0F111A] text-xs font-mono font-bold shadow-xs transition-colors"
-                          >
-                            PUTAR
-                          </button>
-                          <button
-                            onClick={() => triggerDownload(track.fileData, track.fileName)}
-                            className="p-1.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#12141F] hover:text-slate-900 dark:hover:text-slate-200 text-slate-500 transition-colors"
-                            title="Download Lagu ke Perangkat"
-                          >
-                            <Download size={13} />
-                          </button>
-                          <button
-                            onClick={() => setTrackToDelete(track)}
-                            className="p-1.5 rounded border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/30 text-rose-500 hover:bg-rose-600 hover:text-white transition-colors cursor-pointer"
-                            title="Hapus Lagu"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+            {/* Modal Body */}
+            <div className="p-4 space-y-3.5 overflow-y-auto">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-sans leading-relaxed">
+                Pilih satu atau beberapa file lagu audio dari perangkat Anda, lalu tentukan folder playlist untuk disimpan ke penyimpanan offline browser.
+              </p>
+
+              {/* File input */}
+              <div className="p-3.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#12141F] space-y-2 text-center">
+                <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
+                  1. PILIH FILE AUDIO:
+                </label>
+                <input
+                  type="file"
+                  accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac"
+                  multiple
+                  onChange={handleFileChange}
+                  className="w-full text-xs font-mono text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-mono file:font-bold file:bg-[#3DDC84]/20 file:text-emerald-800 dark:file:text-[#3DDC84] hover:file:bg-[#3DDC84]/30 cursor-pointer"
+                />
+
+                {selectedFiles.length > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-[#3DDC84] text-xs font-mono font-bold">
+                    <Check size={12} />
+                    <span>{selectedFiles.length} Lagu terpilih ({formatFileSize(selectedFiles.reduce((acc, f) => acc + f.size, 0))})</span>
                   </div>
                 )}
               </div>
-            );
-          })}
+
+              {/* Target folder */}
+              <div>
+                <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
+                  <Folder size={12} className="text-[#3DDC84]" />
+                  2. SIMPAN KE FOLDER / PLAYLIST:
+                </label>
+                <select
+                  value={targetFolder}
+                  onChange={(e) => setTargetFolder(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
+                >
+                  {existingFolders.map((f) => (
+                    <option key={f} value={f}>
+                      📁 {f}
+                    </option>
+                  ))}
+                  <option value="__NEW__">➕ Buat Folder / Playlist Baru...</option>
+                </select>
+
+                {targetFolder === '__NEW__' && (
+                  <div className="mt-2">
+                    <input
+                      type="text"
+                      placeholder="Nama Folder Baru (cth: Anime OST, Lofi Chill)..."
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#1C202F]">
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={isUploading}
+                className="py-2 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-mono font-bold transition-all cursor-pointer"
+              >
+                BATAL
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTracks}
+                disabled={selectedFiles.length === 0 || isUploading}
+                className="py-2 px-4 rounded-lg bg-[#3DDC84] hover:bg-[#32c974] disabled:opacity-50 text-[#0F111A] text-xs font-mono font-bold tracking-tight shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <FolderPlus size={14} className="stroke-[2.5]" />
+                <span>{isUploading ? 'MENYIMPAN...' : 'SIMPAN KE PERPUSTAKAAN'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Modal Konfirmasi Hapus Musik */}
+      {/* Tracks List */}
+      {filteredTracks.length === 0 ? (
+        <div className="bg-white dark:bg-[#161925] p-8 rounded-xl border border-slate-200 dark:border-slate-800 text-center space-y-2.5">
+          <Music size={32} className="mx-auto text-slate-400" />
+          <h4 className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
+            {tracks.length === 0 ? 'BELUM ADA LAGU OFFLINE' : 'TIDAK ADA LAGU YANG COCOK'}
+          </h4>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
+            {tracks.length === 0
+              ? 'Upload file audio MP3 atau format lainnya untuk didengarkan sambil membaca komik.'
+              : 'Coba ubah kata kunci pencarian atau pilih folder lain.'}
+          </p>
+          {tracks.length === 0 && (
+            <button
+              type="button"
+              onClick={() => setInternalUploadModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#3DDC84] hover:bg-[#32c974] text-[#0F111A] text-xs font-mono font-bold tracking-tight shadow-xs transition-all mt-2 cursor-pointer"
+            >
+              <Upload size={14} className="stroke-[2.5]" />
+              <span>+ UPLOAD MUSIK PERTAMA</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {(Object.entries(groupedTracks) as [string, MusicTrackRecord[]][]).map(([folderName, folderTracks]) => (
+            <div
+              key={folderName}
+              className="bg-white dark:bg-[#161925] rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs"
+            >
+              {/* Folder header */}
+              <div className="px-4 py-2.5 bg-slate-50 dark:bg-[#1C202F] border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Folder size={14} className="text-[#3DDC84]" />
+                  <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-100 uppercase">
+                    {folderName}
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    ({folderTracks.length} lagu)
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onPlayQueue(folderTracks, 0)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#3DDC84]/15 hover:bg-[#3DDC84]/25 text-emerald-700 dark:text-[#3DDC84] text-[11px] font-mono font-bold transition-all cursor-pointer"
+                  title={`Putar semua lagu di folder ${folderName}`}
+                >
+                  <Play size={11} fill="currentColor" />
+                  <span>PUTAR FOLDER</span>
+                </button>
+              </div>
+
+              {/* Tracks in this folder */}
+              <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                {folderTracks.map((track, idx) => (
+                  <div
+                    key={track.id ?? idx}
+                    className="group px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                  >
+                    <div
+                      className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                      onClick={() => {
+                        const globalIndex = filteredTracks.findIndex((t) => t.id === track.id);
+                        onPlayQueue(filteredTracks, globalIndex >= 0 ? globalIndex : 0);
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="w-8 h-8 rounded-full bg-slate-100 dark:bg-[#12141F] group-hover:bg-[#3DDC84] text-slate-600 dark:text-slate-300 group-hover:text-[#0F111A] flex items-center justify-center transition-all shrink-0 cursor-pointer shadow-xs"
+                        title="Putar lagu ini"
+                      >
+                        <Play size={13} fill="currentColor" className="ml-0.5" />
+                      </button>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate group-hover:text-[#3DDC84] transition-colors">
+                          {track.title}
+                        </p>
+                        <p className="text-[10px] font-mono text-slate-400 truncate mt-0.5">
+                          {track.fileName}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 ml-3">
+                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 hidden sm:inline">
+                        {formatFileSize(track.fileData?.size || 0)}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTrackToDelete(track);
+                        }}
+                        className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center justify-center transition-colors cursor-pointer"
+                        title="Hapus lagu"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
       {trackToDelete && (
         <div
-          id="modal-confirm-delete-track"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-200"
           onClick={() => {
             if (!isDeletingTrack) setTrackToDelete(null);
           }}
         >
           <div
-            className="w-full max-w-sm bg-white dark:bg-[#161925] rounded-2xl shadow-2xl border border-rose-500/30 overflow-hidden"
+            className="w-full max-w-sm bg-white dark:bg-[#161925] rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-3"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-5 text-center space-y-3.5">
-              <div className="w-12 h-12 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-500 flex items-center justify-center mx-auto">
-                <Trash2 size={24} />
-              </div>
-
-              <div className="space-y-1">
-                <h4 className="font-mono font-bold text-sm uppercase text-slate-900 dark:text-white">
-                  HAPUS LAGU DARI PLAYLIST?
-                </h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-                  File musik ini akan dihapus secara permanen dari penyimpanan offline database lokal browser Anda.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-100 dark:bg-[#0F111A] border border-slate-200 dark:border-slate-800 text-left">
-                <p
-                  className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate whitespace-nowrap block"
-                  title={trackToDelete.title}
-                >
-                  🎵 {trackToDelete.title}
-                </p>
-                <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 mt-1 truncate">
-                  <span>📁 {trackToDelete.folder || 'Favorit'}</span>
-                  <span>•</span>
-                  <span>
-                    {trackToDelete.fileData
-                      ? `${(trackToDelete.fileData.size / (1024 * 1024)).toFixed(2)} MB`
-                      : 'File Audio'}
-                  </span>
-                  {trackToDelete.uploadedAt && (
-                    <>
-                      <span>•</span>
-                      <span>📅 {trackToDelete.uploadedAt}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5 pt-1">
-                <button
-                  type="button"
-                  id="btn-cancel-delete-track"
-                  disabled={isDeletingTrack}
-                  onClick={() => setTrackToDelete(null)}
-                  className="flex-1 py-2.5 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-[#12141F] hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-mono font-bold transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  BATAL
-                </button>
-                <button
-                  type="button"
-                  id="btn-confirm-delete-track"
-                  disabled={isDeletingTrack}
-                  onClick={async () => {
-                    if (trackToDelete.id !== undefined) {
-                      setIsDeletingTrack(true);
-                      try {
-                        await onDeleteTrack(trackToDelete.id);
-                        setTrackToDelete(null);
-                      } catch (err) {
-                        console.error('Gagal menghapus lagu:', err);
-                      } finally {
-                        setIsDeletingTrack(false);
-                      }
-                    }
-                  }}
-                  className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-mono font-bold flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <Trash2 size={13} />
-                  <span>{isDeletingTrack ? 'MENGHAPUS...' : 'HAPUS'}</span>
-                </button>
-              </div>
+            <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
+              <Trash2 size={18} />
+              <h3 className="text-sm font-mono font-bold uppercase">HAPUS LAGU OFFLINE</h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 font-sans">
+              Apakah Anda yakin ingin menghapus lagu{' '}
+              <strong className="text-slate-900 dark:text-white font-mono font-bold">
+                "{trackToDelete.title}"
+              </strong>{' '}
+              dari memori lokal?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setTrackToDelete(null)}
+                disabled={isDeletingTrack}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                BATAL
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isDeletingTrack}
+                className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-mono font-bold transition-colors shadow-xs"
+              >
+                {isDeletingTrack ? 'MENGHAPUS...' : 'YA, HAPUS'}
+              </button>
             </div>
           </div>
         </div>

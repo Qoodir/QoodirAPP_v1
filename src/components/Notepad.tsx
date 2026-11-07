@@ -23,7 +23,7 @@ import { NoteItem } from '../types';
 import { INITIAL_NOTES } from '../data/initialNotes';
 
 interface NotepadProps {
-  // Optional external trigger or props
+  searchQuery?: string;
 }
 
 const COLOR_MAP: Record<string, { bg: string; border: string; badge: string; text: string }> = {
@@ -59,7 +59,7 @@ const COLOR_MAP: Record<string, { bg: string; border: string; badge: string; tex
   }
 };
 
-export const Notepad: React.FC<NotepadProps> = () => {
+export const Notepad: React.FC<NotepadProps> = ({ searchQuery: externalSearchQuery }) => {
   const [notes, setNotes] = useState<NoteItem[]>(() => {
     try {
       const saved = localStorage.getItem('comic_app_notepad');
@@ -77,7 +77,9 @@ export const Notepad: React.FC<NotepadProps> = () => {
     return localStorage.getItem('comic_app_notepad_master_pin') || '1234';
   });
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const [internalSearchQuery, setInternalSearchQuery] = useState('');
+  const activeSearch = (externalSearchQuery !== undefined && externalSearchQuery !== '') ? externalSearchQuery : internalSearchQuery;
+  const deferredSearch = React.useDeferredValue(activeSearch);
   const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
 
   // Full View Reader Modal State
@@ -419,9 +421,11 @@ export const Notepad: React.FC<NotepadProps> = () => {
 
   // Filter notes
   const filteredNotes = notes.filter((n) => {
+    const q = deferredSearch.toLowerCase();
     const matchesSearch =
-      n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (!n.isLocked && n.content.toLowerCase().includes(searchQuery.toLowerCase()));
+      !q ||
+      n.title.toLowerCase().includes(q) ||
+      (!n.isLocked && n.content.toLowerCase().includes(q));
     const matchesCategory =
       selectedCategory === 'Semua' || n.category === selectedCategory;
     return matchesSearch && matchesCategory;
@@ -489,50 +493,24 @@ export const Notepad: React.FC<NotepadProps> = () => {
           </div>
         </div>
 
-        {/* Search & Filter Bar */}
-        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row gap-2.5">
-          <div className="relative flex-1">
-            <Search
-              size={15}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              id="input-search-notes"
-              type="text"
-              placeholder="Cari judul atau isi catatan..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-50 dark:bg-[#0F111A] border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-[#3DDC84] transition-colors"
-            />
-            {searchQuery && (
+        {/* Category Chips */}
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          {categories.map((cat) => {
+            const isSelected = selectedCategory === cat;
+            return (
               <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium whitespace-nowrap transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold shadow-xs'
+                    : 'bg-slate-100 dark:bg-[#12141F] text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+                }`}
               >
-                <X size={14} />
+                {cat}
               </button>
-            )}
-          </div>
-
-          {/* Category Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-            {categories.map((cat) => {
-              const isSelected = selectedCategory === cat;
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium whitespace-nowrap transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold shadow-xs'
-                      : 'bg-slate-100 dark:bg-[#12141F] text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-                  }`}
-                >
-                  {cat}
-                </button>
-              );
-            })}
-          </div>
+            );
+          })}
         </div>
       </div>
 
@@ -544,11 +522,11 @@ export const Notepad: React.FC<NotepadProps> = () => {
           </div>
           <div>
             <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
-              {searchQuery ? 'Tidak Ada Catatan yang Cocok' : 'Belum Ada Catatan'}
+              {activeSearch ? 'Tidak Ada Catatan yang Cocok' : 'Belum Ada Catatan'}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {searchQuery
-                ? `Tidak ditemukan catatan dengan kata kunci "${searchQuery}".`
+              {activeSearch
+                ? `Tidak ditemukan catatan dengan kata kunci "${activeSearch}".`
                 : 'Mulai buat catatan wishlist komik atau review buku favorit Anda.'}
             </p>
           </div>

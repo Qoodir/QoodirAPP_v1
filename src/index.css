@@ -1,17 +1,122 @@
 @import "tailwindcss";
 
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  body {
+    overscroll-behavior-y: contain;
+    transition: background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  button, a, input, select, textarea {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Fluid hardware-accelerated transitions */
 @keyframes tabFadeIn {
   0% {
-    opacity: 0;
-    transform: translateY(8px) scale(0.995);
+    opacity: 0.15;
+    transform: translate3d(0, 6px, 0) scale(0.995);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 .tab-transition {
-  animation: tabFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: tabFadeIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
   will-change: opacity, transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+@keyframes tabSlideLeft {
+  0% {
+    opacity: 0.15;
+    transform: translate3d(20px, 0, 0) scale(0.994);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes tabSlideRight {
+  0% {
+    opacity: 0.15;
+    transform: translate3d(-20px, 0, 0) scale(0.994);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.tab-slide-left {
+  animation: tabSlideLeft 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.tab-slide-right {
+  animation: tabSlideRight 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Smooth modal pop */
+@keyframes modalPopIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-smooth {
+  animation: modalPopIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+}
+
+/* Clean, smooth scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.35);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.55);
 }

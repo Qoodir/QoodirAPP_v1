@@ -1,5 +1,16 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Play, Pause, SkipBack, SkipForward, X, Volume2, VolumeX, Disc, Music } from 'lucide-react';
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  X,
+  Volume2,
+  VolumeX,
+  Disc,
+  Music,
+  ExternalLink
+} from 'lucide-react';
 import { MusicTrackRecord } from '../types';
 
 export interface FloatingMusicPlayerProps {
@@ -26,6 +37,7 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playPromiseRef = useRef<Promise<void> | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const ytIframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -34,13 +46,7 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
 
   const currentTrack = queue[currentIndex] || null;
-
-  // Auto-open popover when a new song starts playing for immediate feedback
-  useEffect(() => {
-    if (isOpen && currentTrack) {
-      setIsPopoverOpen(false); // keep it compact beside the button, user can click to expand
-    }
-  }, [currentTrack]);
+  const isYouTubeTrack = currentTrack?.sourceType === 'youtube' && Boolean(currentTrack.youtubeId);
 
   // Click outside listener for popover card
   useEffect(() => {
@@ -57,7 +63,22 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
     };
   }, [isPopoverOpen]);
 
+  const sendYouTubeCommand = useCallback((func: 'playVideo' | 'pauseVideo' | 'mute' | 'unMute') => {
+    if (ytIframeRef.current && ytIframeRef.current.contentWindow) {
+      ytIframeRef.current.contentWindow.postMessage(
+        JSON.stringify({ event: 'command', func, args: [] }),
+        '*'
+      );
+    }
+  }, []);
+
   const safePlay = useCallback(() => {
+    if (isYouTubeTrack) {
+      sendYouTubeCommand('playVideo');
+      setIsPlaying(true);
+      return;
+    }
+
     if (!audioRef.current) return;
     const audio = audioRef.current;
     try {
@@ -82,9 +103,15 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
         console.warn('Audio play exception:', e);
       }
     }
-  }, []);
+  }, [isYouTubeTrack, sendYouTubeCommand]);
 
   const safePause = useCallback(() => {
+    if (isYouTubeTrack) {
+      sendYouTubeCommand('pauseVideo');
+      setIsPlaying(false);
+      return;
+    }
+
     if (!audioRef.current) return;
     const audio = audioRef.current;
     if (playPromiseRef.current) {
@@ -105,15 +132,32 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
       audio.pause();
       setIsPlaying(false);
     }
-  }, []);
+  }, [isYouTubeTrack, sendYouTubeCommand]);
 
   useEffect(() => {
-    if (!currentTrack || !audioRef.current) return;
+    if (!currentTrack) {
+      setIsPlaying(false);
+      return;
+    }
+
+    // Handle YouTube track
+    if (currentTrack.sourceType === 'youtube' && currentTrack.youtubeId) {
+      // Pause local audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setIsPlaying(true);
+      setCurrentTime(0);
+      setDuration(currentTrack.duration || 210);
+      return;
+    }
+
+    // Handle Local audio Blob track
+    if (!currentTrack.fileData || !audioRef.current) return;
 
     const audio = audioRef.current;
     let isCancelled = false;
 
-    // Safely pause before changing source
     if (playPromiseRef.current) {
       playPromiseRef.current
         .then(() => {
@@ -175,7 +219,6 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
   }, [currentTrack]);
 
   const togglePlay = () => {
-    if (!audioRef.current) return;
     if (isPlaying) {
       safePause();
     } else {
@@ -184,7 +227,7 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
   };
 
   const handleTimeUpdate = () => {
-    if (audioRef.current) {
+    if (audioRef.current && !isYouTubeTrack) {
       setCurrentTime(audioRef.current.currentTime);
       setDuration(audioRef.current.duration || 0);
     }
@@ -193,13 +236,16 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = Number(e.target.value);
     setCurrentTime(time);
-    if (audioRef.current) {
+    if (audioRef.current && !isYouTubeTrack) {
       audioRef.current.currentTime = time;
     }
   };
 
   const toggleMute = () => {
-    if (audioRef.current) {
+    if (isYouTubeTrack) {
+      sendYouTubeCommand(isMuted ? 'unMute' : 'mute');
+      setIsMuted(!isMuted);
+    } else if (audioRef.current) {
       audioRef.current.muted = !isMuted;
       setIsMuted(!isMuted);
     }
@@ -220,7 +266,7 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
 
   return (
     <>
-      {/* Hidden persistent audio element to prevent DOM removal errors */}
+      {/* Hidden persistent local audio element */}
       <audio
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
@@ -229,22 +275,38 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
         className="hidden"
       />
 
+      {/* Hidden YouTube Iframe for YouTube Music audio streams */}
+      {isYouTubeTrack && (
+        <div className="fixed -left-[9999px] top-0 w-1 h-1 opacity-0 pointer-events-none">
+          <iframe
+            ref={ytIframeRef}
+            id="yt-music-iframe-floating"
+            src={`https://www.youtube-nocookie.com/embed/${currentTrack.youtubeId}?autoplay=1&enablejsapi=1&origin=${encodeURIComponent(
+              typeof window !== 'undefined' ? window.location.origin : ''
+            )}`}
+            title={currentTrack.title}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            className="w-1 h-1"
+          />
+        </div>
+      )}
+
       {isOpen && currentTrack ? (
         <div ref={popoverRef} className="relative flex items-center">
-          {/* Active square button with green logo, matching the theme button */}
+          {/* Active square button with neon green logo, matching theme button */}
           <button
             id="btn-active-music-square"
             type="button"
             onClick={() => setIsPopoverOpen((prev) => !prev)}
             className="relative w-9 h-9 rounded-xl border border-[#3DDC84]/50 dark:border-[#3DDC84]/60 bg-emerald-500/10 dark:bg-[#12141F] hover:bg-emerald-500/20 dark:hover:bg-slate-800 text-[#3DDC84] flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-xs shrink-0"
-            title={`Musik: ${currentTrack.title} (${isPlaying ? 'Sedang Memutar' : 'Dijeda'}) - Klik untuk membuka kontrol`}
+            title={`Musik: ${currentTrack.title} (${isPlaying ? 'Sedang Memutar' : 'Dijeda'}) - Klik untuk kontrol`}
           >
             <Disc
               size={18}
               className={`text-[#3DDC84] ${isPlaying ? 'animate-spin' : ''}`}
               style={{ animationDuration: '3.5s' }}
             />
-            {/* Small active green pulse dot */}
+            {/* Small active green pulsing dot */}
             <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 pointer-events-none">
               <span
                 className={`absolute inline-flex h-full w-full rounded-full bg-[#3DDC84] opacity-75 ${
@@ -259,29 +321,45 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
           {isPopoverOpen && (
             <div
               id="floating-music-popover-card"
-              className="absolute right-0 top-11 sm:top-12 z-50 w-72 sm:w-80 p-3.5 rounded-2xl bg-white dark:bg-[#161925] border border-slate-200 dark:border-slate-800 shadow-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-150"
+              className="absolute right-0 top-11 sm:top-12 z-50 w-72 sm:w-84 p-3.5 rounded-2xl bg-white dark:bg-[#161925] border border-slate-200 dark:border-slate-800 shadow-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-150"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header inside popover */}
-              <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 overflow-hidden min-w-0">
-                  <div
-                    className={`w-7 h-7 rounded-full bg-[#3DDC84] text-[#0F111A] flex items-center justify-center shrink-0 ${
-                      isPlaying ? 'animate-spin' : ''
-                    }`}
-                    style={{ animationDuration: '4s' }}
-                  >
-                    <Disc size={15} />
-                  </div>
-                  <div className="truncate">
-                    <p
-                      className="text-xs font-mono font-bold text-slate-900 dark:text-slate-100 truncate"
-                      title={currentTrack.title}
+                  {currentTrack.thumbnailUrl ? (
+                    <img
+                      src={currentTrack.thumbnailUrl}
+                      alt={currentTrack.title}
+                      className="w-8 h-8 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700 shadow-xs"
+                    />
+                  ) : (
+                    <div
+                      className={`w-7 h-7 rounded-full bg-[#3DDC84] text-[#0F111A] flex items-center justify-center shrink-0 ${
+                        isPlaying ? 'animate-spin' : ''
+                      }`}
+                      style={{ animationDuration: '4s' }}
                     >
-                      {currentTrack.title}
-                    </p>
+                      <Disc size={15} />
+                    </div>
+                  )}
+
+                  <div className="truncate">
+                    <div className="flex items-center gap-1.5">
+                      <p
+                        className="text-xs font-mono font-bold text-slate-900 dark:text-slate-100 truncate"
+                        title={currentTrack.title}
+                      >
+                        {currentTrack.title}
+                      </p>
+                      {isYouTubeTrack && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-red-600/15 text-red-600 dark:text-red-400 border border-red-500/20 uppercase tracking-wider shrink-0">
+                          AUDIO
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[10px] font-mono text-slate-400 dark:text-slate-500 truncate">
-                      {currentTrack.folder || 'Favorit'} • [{currentIndex + 1}/{queue.length}]
+                      {currentTrack.artist || currentTrack.folder || 'Favorit'} • [{currentIndex + 1}/{queue.length}]
                     </p>
                   </div>
                 </div>
@@ -291,10 +369,11 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
                     type="button"
                     onClick={toggleMute}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-                    title={isMuted ? 'Unmute' : 'Mute'}
+                    title={isMuted ? 'Suara Aktif' : 'Senyapkan'}
                   >
                     {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
                   </button>
+
                   <button
                     type="button"
                     id="btn-close-floating-player"
@@ -307,7 +386,7 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
                 </div>
               </div>
 
-              {/* Seek Bar */}
+              {/* Seek Bar (or duration info) */}
               <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 dark:text-slate-500">
                 <span className="text-[#3DDC84] min-w-[30px] font-bold">{formatTime(currentTime)}</span>
                 <input
@@ -316,47 +395,67 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
                   max={duration || 100}
                   value={currentTime}
                   onChange={handleSeek}
-                  className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#3DDC84]"
+                  disabled={isYouTubeTrack}
+                  className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#3DDC84] disabled:opacity-50"
                 />
                 <span className="min-w-[30px] text-right">{formatTime(duration)}</span>
               </div>
 
               {/* Playback Controls */}
-              <div className="flex items-center justify-center gap-4 pt-1">
-                <button
-                  type="button"
-                  onClick={onPrev}
-                  className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-[#3DDC84] active:scale-95 transition-all cursor-pointer"
-                  title="Lagu Sebelumnya"
-                >
-                  <SkipBack size={16} />
-                </button>
-                <button
-                  type="button"
-                  onClick={togglePlay}
-                  className="w-9 h-9 rounded-full bg-[#3DDC84] hover:bg-[#32c974] text-[#0F111A] flex items-center justify-center active:scale-90 transition-all shadow-md shadow-[#3DDC84]/20 cursor-pointer"
-                  title={isPlaying ? 'Jeda' : 'Putar'}
-                >
-                  {isPlaying ? (
-                    <Pause size={15} className="stroke-[2.5]" />
-                  ) : (
-                    <Play size={15} className="ml-0.5 stroke-[2.5]" fill="currentColor" />
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-1">
+                  {onOpenMusicTab && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPopoverOpen(false);
+                        onOpenMusicTab();
+                      }}
+                      className="text-[10px] font-mono text-slate-500 hover:text-[#3DDC84] flex items-center gap-1 transition-colors"
+                      title="Buka Menu Musik Lengkap"
+                    >
+                      <span>Menu Musik</span>
+                      <ExternalLink size={10} />
+                    </button>
                   )}
-                </button>
-                <button
-                  type="button"
-                  onClick={onNext}
-                  className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-[#3DDC84] active:scale-95 transition-all cursor-pointer"
-                  title="Lagu Berikutnya"
-                >
-                  <SkipForward size={16} />
-                </button>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onPrev}
+                    className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-[#3DDC84] active:scale-95 transition-all cursor-pointer"
+                    title="Lagu Sebelumnya"
+                  >
+                    <SkipBack size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={togglePlay}
+                    className="w-9 h-9 rounded-full bg-[#3DDC84] hover:bg-[#32c974] text-[#0F111A] flex items-center justify-center active:scale-90 transition-all shadow-md shadow-[#3DDC84]/20 cursor-pointer"
+                    title={isPlaying ? 'Jeda' : 'Putar'}
+                  >
+                    {isPlaying ? (
+                      <Pause size={15} className="stroke-[2.5]" />
+                    ) : (
+                      <Play size={15} className="ml-0.5 stroke-[2.5]" fill="currentColor" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onNext}
+                    className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-[#3DDC84] active:scale-95 transition-all cursor-pointer"
+                    title="Lagu Berikutnya"
+                  >
+                    <SkipForward size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           )}
         </div>
       ) : (
-        /* Standby Music Icon Button beside the Mode Toggle */
+        /* Standby Music Icon Button beside Mode Toggle */
         <button
           id="btn-open-music-top"
           type="button"
@@ -368,7 +467,7 @@ export const FloatingMusicPlayer: React.FC<FloatingMusicPlayerProps> = ({
             }
           }}
           className="relative w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#12141F] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-xs shrink-0"
-          title={queue.length > 0 ? 'Buka Pemutar Musik' : 'Buka Tab Musik Offline'}
+          title={queue.length > 0 ? 'Buka Pemutar Musik' : 'Buka Tab Musik YouTube & Offline'}
         >
           <Music size={16} className="text-slate-700 dark:text-slate-300" />
           {queue.length > 0 && (

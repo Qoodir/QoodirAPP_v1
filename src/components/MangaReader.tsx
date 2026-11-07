@@ -17,7 +17,8 @@ import {
   ArrowRightLeft,
   X,
   Check,
-  FolderUp
+  FolderUp,
+  Search
 } from 'lucide-react';
 import { MangaFileRecord } from '../types';
 import {
@@ -41,6 +42,9 @@ interface MangaReaderProps {
   onUpdateStatus: (id: number, status: 'Belum Dibaca' | 'Sedang Dibaca' | 'Selesai') => Promise<void>;
   onUpdateFolder?: (id: number, folder: string) => Promise<void>;
   onReadManga: (title: string, blob: Blob) => void;
+  isUploadModalOpen?: boolean;
+  onCloseUploadModal?: () => void;
+  searchQuery?: string;
 }
 
 export const MangaReader: React.FC<MangaReaderProps> = ({
@@ -49,8 +53,24 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
   onDeleteFile,
   onUpdateStatus,
   onUpdateFolder,
-  onReadManga
+  onReadManga,
+  isUploadModalOpen,
+  onCloseUploadModal,
+  searchQuery: externalSearchQuery
 }) => {
+  const [internalUploadModalOpen, setInternalUploadModalOpen] = useState(false);
+  const [internalSearchQuery, setInternalSearchQuery] = useState('');
+
+  const activeSearch = externalSearchQuery !== undefined ? externalSearchQuery : internalSearchQuery;
+  const deferredSearch = React.useDeferredValue(activeSearch);
+  const isModalOpen = isUploadModalOpen !== undefined ? isUploadModalOpen : internalUploadModalOpen;
+
+  const closeModal = () => {
+    if (onCloseUploadModal) onCloseUploadModal();
+    setInternalUploadModalOpen(false);
+    setSelectedFiles([]);
+  };
+
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploadMode, setUploadMode] = useState<'files' | 'directory'>('files');
   const [targetMainFolder, setTargetMainFolder] = useState('Tanpa Folder');
@@ -155,7 +175,7 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
       }
       // Auto expand the folder
       setExpandedMainFolders((prev) => ({ ...prev, [finalMain]: true }));
-      alert(`Sukses menyimpan ${selectedFiles.length} file manga ke ${finalFolder}!`);
+      closeModal();
     } catch (err) {
       console.error(err);
       alert('Gagal menyimpan file ke database.');
@@ -207,6 +227,7 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
 
   // Group files into Main Folders -> (Direct Files + Sub-Folders)
   const groupedData = useMemo<Record<string, FolderGroupStructure>>(() => {
+    const q = deferredSearch.trim().toLowerCase();
     const filtered = mangaFiles.filter((file) => {
       const parsed = parseFolder(file.folder);
       const matchFolder =
@@ -214,7 +235,11 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
         parsed.mainFolder === filterFolder ||
         file.folder === filterFolder;
       const matchStatus = filterStatus === 'ALL' || file.status === filterStatus;
-      return matchFolder && matchStatus;
+      const matchSearch =
+        !q ||
+        file.fileName.toLowerCase().includes(q) ||
+        file.folder.toLowerCase().includes(q);
+      return matchFolder && matchStatus && matchSearch;
     });
 
     const groups: Record<string, FolderGroupStructure> = {};
@@ -258,7 +283,7 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
     });
 
     return groups;
-  }, [mangaFiles, filterFolder, filterStatus]);
+  }, [mangaFiles, filterFolder, filterStatus, deferredSearch]);
 
   // Open move modal
   const openMoveModal = (file: MangaFileRecord) => {
@@ -309,209 +334,250 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
 
   return (
     <div className="space-y-4 pb-24">
-      {/* Upload Box Card */}
-      <div className="bg-white dark:bg-[#161925] p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-2 text-slate-900 dark:text-white">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 bg-[#3DDC84] rounded flex items-center justify-center text-[#0F111A]">
-              <Upload size={13} className="stroke-[2.5]" />
+      {/* Upload Pop Up Modal */}
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-200"
+          onClick={() => {
+            if (!isUploading) closeModal();
+          }}
+        >
+          <div
+            className="w-full max-w-xl bg-white dark:bg-[#161925] rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#1C202F]">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-[#3DDC84] rounded-lg flex items-center justify-center text-[#0F111A]">
+                  <Upload size={14} className="stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-mono font-bold tracking-tight text-slate-900 dark:text-white uppercase leading-none">
+                    UPLOAD MANGA OFFLINE
+                  </h3>
+                  <p className="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+                    Mendukung format .PDF, .ZIP, .CBZ
+                  </p>
+                </div>
+              </div>
+
+              {/* Mode Switcher: Berkas vs Folder */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-slate-200 dark:bg-[#0F111A] p-0.5 rounded-lg border border-slate-300 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadMode('files');
+                      setSelectedFiles([]);
+                    }}
+                    className={`px-2 py-1 rounded-md text-[10px] font-mono font-bold transition-all ${
+                      uploadMode === 'files'
+                        ? 'bg-white dark:bg-[#1C202F] text-[#3DDC84] shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    BERKAS
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadMode('directory');
+                      setSelectedFiles([]);
+                    }}
+                    className={`px-2 py-1 rounded-md text-[10px] font-mono font-bold transition-all ${
+                      uploadMode === 'directory'
+                        ? 'bg-white dark:bg-[#1C202F] text-[#3DDC84] shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    FOLDER
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isUploading) closeModal();
+                  }}
+                  className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center justify-center transition-all cursor-pointer"
+                  title="Tutup pop up"
+                >
+                  <X size={15} />
+                </button>
+              </div>
             </div>
-            <h3 className="text-xs font-mono font-bold tracking-tight uppercase">
-              UPLOAD MANGA OFFLINE (PDF, ZIP, CBZ)
-            </h3>
-          </div>
 
-          {/* Mode Switcher: Berkas vs Folder */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#0F111A] p-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={() => {
-                setUploadMode('files');
-                setSelectedFiles([]);
-              }}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold transition-all ${
-                uploadMode === 'files'
-                  ? 'bg-white dark:bg-[#1C202F] text-[#3DDC84] shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              📄 PILIH BERKAS
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setUploadMode('directory');
-                setSelectedFiles([]);
-              }}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold transition-all ${
-                uploadMode === 'directory'
-                  ? 'bg-white dark:bg-[#1C202F] text-[#3DDC84] shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              📁 UNGGAH FOLDER
-            </button>
-          </div>
-        </div>
-
-        <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-          {uploadMode === 'directory'
-            ? 'Pilih satu folder dari perangkat. Sistem akan otomatis memasukkan sub-folder ke dalam Folder Utama manga terkait.'
-            : 'Pilih file komik, lalu tentukan Folder Utama dan Sub-Folder (opsional) agar koleksi tertata bersih.'}
-        </p>
-
-        <div className="space-y-3 pt-1">
-          {/* File or Folder Input */}
-          <div>
-            <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1">
-              {uploadMode === 'directory' ? '1. PILIH FOLDER MANGA DARI PERANGKAT:' : '1. PILIH FILE MANGA:'}
-            </label>
-
-            {uploadMode === 'directory' ? (
-              <input
-                id="input-manga-directory"
-                type="file"
-                // @ts-ignore
-                webkitdirectory=""
-                directory=""
-                multiple
-                onChange={handleFileChange}
-                className="w-full text-xs font-mono text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-mono file:font-bold file:bg-[#3DDC84]/20 file:text-emerald-800 dark:file:text-[#3DDC84] hover:file:bg-[#3DDC84]/30 cursor-pointer"
-              />
-            ) : (
-              <input
-                id="input-manga-file"
-                type="file"
-                accept=".pdf,.zip,.cbz,application/pdf,application/zip"
-                multiple
-                onChange={handleFileChange}
-                className="w-full text-xs font-mono text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-mono file:font-bold file:bg-[#3DDC84]/20 file:text-emerald-800 dark:file:text-[#3DDC84] hover:file:bg-[#3DDC84]/30 cursor-pointer"
-              />
-            )}
-
-            {selectedFiles.length > 0 && (
-              <p className="text-[11px] font-mono text-emerald-600 dark:text-[#3DDC84] font-bold mt-1">
-                ✓ {selectedFiles.length} FILE TERPILIH
+            {/* Modal Body */}
+            <div className="p-4 space-y-3.5 overflow-y-auto">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-sans leading-relaxed">
+                {uploadMode === 'directory'
+                  ? 'Pilih satu folder dari perangkat. Sistem akan otomatis memasukkan sub-folder ke dalam Folder Utama manga terkait.'
+                  : 'Pilih file komik, lalu tentukan Folder Utama dan Sub-Folder (opsional) agar koleksi tertata bersih.'}
               </p>
-            )}
-          </div>
 
-          {/* Folder and Subfolder selection */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            {/* Main Folder Selection */}
-            <div>
-              <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                <Folder size={12} className="text-[#3DDC84]" />
-                2. FOLDER UTAMA:
-              </label>
-              <select
-                id="select-manga-target-folder"
-                value={targetMainFolder}
-                onChange={(e) => {
-                  setTargetMainFolder(e.target.value);
-                  setTargetSubFolder('__NONE__');
-                  setNewSubFolderName('');
-                }}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
-              >
-                <option value="Tanpa Folder">📄 Tanpa Folder</option>
-                {existingMainFolders
-                  .filter((f) => f !== 'Tanpa Folder')
-                  .map((f) => (
-                    <option key={f} value={f}>
-                      📁 {f}
-                    </option>
-                  ))}
-                <option value="__NEW__">➕ Buat Folder Utama Baru...</option>
-              </select>
+              {/* File or Folder Input */}
+              <div className="p-3.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#12141F] space-y-2 text-center">
+                <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
+                  {uploadMode === 'directory' ? '1. PILIH FOLDER DARI PERANGKAT:' : '1. PILIH BERKAS KOMIK (.PDF, .ZIP, .CBZ):'}
+                </label>
 
-              {targetMainFolder === '__NEW__' && (
-                <div className="mt-2">
+                {uploadMode === 'directory' ? (
                   <input
-                    type="text"
-                    placeholder="Nama Folder Utama (cth: One Piece)..."
-                    value={newMainFolderName}
-                    onChange={(e) => setNewMainFolderName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
+                    id="input-manga-directory"
+                    type="file"
+                    // @ts-ignore
+                    webkitdirectory=""
+                    directory=""
+                    multiple
+                    onChange={handleFileChange}
+                    className="w-full text-xs font-mono text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-mono file:font-bold file:bg-[#3DDC84]/20 file:text-emerald-800 dark:file:text-[#3DDC84] hover:file:bg-[#3DDC84]/30 cursor-pointer"
                   />
+                ) : (
+                  <input
+                    id="input-manga-file"
+                    type="file"
+                    accept=".pdf,.zip,.cbz,application/pdf,application/zip"
+                    multiple
+                    onChange={handleFileChange}
+                    className="w-full text-xs font-mono text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-mono file:font-bold file:bg-[#3DDC84]/20 file:text-emerald-800 dark:file:text-[#3DDC84] hover:file:bg-[#3DDC84]/30 cursor-pointer"
+                  />
+                )}
+
+                {selectedFiles.length > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-[#3DDC84] text-xs font-mono font-bold">
+                    <Check size={12} />
+                    <span>{selectedFiles.length} File terpilih ({formatFileSize(selectedFiles.reduce((acc, f) => acc + f.size, 0))})</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Folder and Subfolder selection */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {/* Main Folder Selection */}
+                <div>
+                  <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
+                    <Folder size={12} className="text-[#3DDC84]" />
+                    2. FOLDER UTAMA:
+                  </label>
+                  <select
+                    id="select-manga-target-folder"
+                    value={targetMainFolder}
+                    onChange={(e) => {
+                      setTargetMainFolder(e.target.value);
+                      setTargetSubFolder('__NONE__');
+                      setNewSubFolderName('');
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
+                  >
+                    <option value="Tanpa Folder">📄 Tanpa Folder</option>
+                    {existingMainFolders
+                      .filter((f) => f !== 'Tanpa Folder')
+                      .map((f) => (
+                        <option key={f} value={f}>
+                          📁 {f}
+                        </option>
+                      ))}
+                    <option value="__NEW__">➕ Buat Folder Utama Baru...</option>
+                  </select>
+
+                  {targetMainFolder === '__NEW__' && (
+                    <div className="mt-2">
+                      <input
+                        type="text"
+                        placeholder="Nama Folder Utama (cth: One Piece)..."
+                        value={newMainFolderName}
+                        onChange={(e) => setNewMainFolderName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
+                      />
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* Sub-Folder Selection */}
+                <div>
+                  <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
+                    <FolderGit2 size={12} className="text-[#3DDC84]" />
+                    3. SUB-FOLDER (OPSIONAL):
+                  </label>
+                  <select
+                    id="select-manga-sub-folder"
+                    disabled={targetMainFolder === 'Tanpa Folder'}
+                    value={targetSubFolder}
+                    onChange={(e) => setTargetSubFolder(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden disabled:opacity-40"
+                  >
+                    <option value="__NONE__">— (Tanpa Sub-Folder / Langsung di Folder Utama) —</option>
+                    {subFoldersForSelectedMain.map((sf) => (
+                      <option key={sf} value={sf}>
+                        📂 {sf}
+                      </option>
+                    ))}
+                    <option value="__NEW__">➕ Buat Sub-Folder Baru...</option>
+                  </select>
+
+                  {targetSubFolder === '__NEW__' && targetMainFolder !== 'Tanpa Folder' && (
+                    <div className="mt-2">
+                      <input
+                        type="text"
+                        placeholder="Nama Sub-Folder (cth: Vol 01, Arc Wano)..."
+                        value={newSubFolderName}
+                        onChange={(e) => setNewSubFolderName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Sub-Folder Selection (Only if Main Folder !== Tanpa Folder) */}
-            <div>
-              <label className="block text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                <FolderGit2 size={12} className="text-[#3DDC84]" />
-                3. SUB-FOLDER (OPSIONAL):
-              </label>
-              <select
-                id="select-manga-sub-folder"
-                disabled={targetMainFolder === 'Tanpa Folder'}
-                value={targetSubFolder}
-                onChange={(e) => setTargetSubFolder(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden disabled:opacity-40"
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#1C202F]">
+              <button
+                id="btn-read-manga-temp"
+                type="button"
+                onClick={handleReadTemporary}
+                disabled={selectedFiles.length === 0}
+                className="py-2 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#12141F] hover:border-[#3DDC84]/50 disabled:opacity-50 text-slate-700 dark:text-slate-200 text-xs font-mono font-bold shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <option value="__NONE__">— (Tanpa Sub-Folder / Langsung di Folder Utama) —</option>
-                {subFoldersForSelectedMain.map((sf) => (
-                  <option key={sf} value={sf}>
-                    📂 {sf}
-                  </option>
-                ))}
-                <option value="__NEW__">➕ Buat Sub-Folder Baru...</option>
-              </select>
+                <BookOpen size={13} className="text-[#3DDC84]" />
+                <span>BACA SEMENTARA</span>
+              </button>
 
-              {targetSubFolder === '__NEW__' && targetMainFolder !== 'Tanpa Folder' && (
-                <div className="mt-2">
-                  <input
-                    type="text"
-                    placeholder="Nama Sub-Folder (cth: Vol 01, Arc Wano)..."
-                    value={newSubFolderName}
-                    onChange={(e) => setNewSubFolderName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:ring-1 focus:ring-[#3DDC84] focus:outline-hidden"
-                  />
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  disabled={isUploading}
+                  className="py-2 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-mono font-bold transition-all cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  id="btn-save-manga-db"
+                  type="button"
+                  onClick={handleSaveToStorage}
+                  disabled={selectedFiles.length === 0 || isUploading}
+                  className="py-2 px-4 rounded-lg bg-[#3DDC84] hover:bg-[#32c974] disabled:opacity-50 text-[#0F111A] text-xs font-mono font-bold tracking-tight shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <FolderPlus size={14} className="stroke-[2.5]" />
+                  <span>{isUploading ? 'MENYIMPAN...' : 'SIMPAN KE PERPUSTAKAAN'}</span>
+                </button>
+              </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              id="btn-read-manga-temp"
-              type="button"
-              onClick={handleReadTemporary}
-              disabled={selectedFiles.length === 0}
-              className="flex-1 py-2 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#12141F] hover:border-[#3DDC84]/50 disabled:opacity-50 text-slate-700 dark:text-slate-200 text-xs font-mono font-bold shadow-xs transition-colors flex items-center justify-center gap-1.5"
-            >
-              <BookOpen size={13} className="text-[#3DDC84]" />
-              <span>BACA SEMENTARA</span>
-            </button>
-
-            <button
-              id="btn-save-manga-db"
-              type="button"
-              onClick={handleSaveToStorage}
-              disabled={selectedFiles.length === 0 || isUploading}
-              className="flex-1 py-2 px-3 rounded-lg bg-[#3DDC84] hover:bg-[#32c974] disabled:opacity-50 text-[#0F111A] text-xs font-mono font-bold tracking-tight shadow-xs transition-colors flex items-center justify-center gap-1.5"
-            >
-              <FolderPlus size={13} className="stroke-[2.5]" />
-              <span>{isUploading ? 'MENYIMPAN...' : '+ SIMPAN KE DB'}</span>
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Filter Row */}
-      <div className="flex items-center gap-2 flex-wrap bg-white dark:bg-[#161925] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-        <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-[0.2em] shrink-0">
-          FILTER:
-        </span>
+      <div className="flex items-center gap-2 flex-wrap px-0.5">
         <select
           id="filter-manga-folder"
           value={filterFolder}
           onChange={(e) => setFilterFolder(e.target.value)}
-          className="flex-1 min-w-[140px] px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:outline-hidden"
+          className="flex-1 min-w-[130px] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#161925] text-slate-800 dark:text-slate-200 text-xs font-mono focus:border-[#3DDC84] focus:outline-hidden shadow-2xs"
         >
-          <option value="ALL">📁 Semua Folder Utama</option>
+          <option value="ALL">📁 Semua Folder ({existingMainFolders.filter((f) => f !== 'Tanpa Folder').length})</option>
           {existingMainFolders.map((f) => (
             <option key={f} value={f}>
               📁 {f}
@@ -523,13 +589,17 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
           id="filter-manga-status"
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="flex-1 min-w-[120px] px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0F111A] text-slate-900 dark:text-white text-xs font-mono focus:border-[#3DDC84] focus:outline-hidden"
+          className="flex-1 min-w-[120px] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#161925] text-slate-800 dark:text-slate-200 text-xs font-mono focus:border-[#3DDC84] focus:outline-hidden shadow-2xs"
         >
           <option value="ALL">Semua Status</option>
           <option value="Belum Dibaca">Belum Dibaca</option>
           <option value="Sedang Dibaca">Sedang Dibaca</option>
           <option value="Selesai">Selesai</option>
         </select>
+
+        <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 ml-auto shrink-0">
+          TOTAL: <span className="font-bold text-[#3DDC84]">{mangaFiles.length}</span> BERKAS
+        </div>
       </div>
 
       {/* Manga Files List Organized Cleanly by Main Folder -> Sub-Folders */}
@@ -540,8 +610,16 @@ export const MangaReader: React.FC<MangaReaderProps> = ({
             BELUM ADA FILE MANGA TERSIMPAN
           </h4>
           <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-            Upload file .cbz, .zip, atau .pdf di atas untuk membaca offline kapan saja.
+            Penyimpanan lokal masih kosong. Tambahkan komik offline untuk mulai membaca kapan saja.
           </p>
+          <button
+            type="button"
+            onClick={() => setInternalUploadModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#3DDC84] hover:bg-[#32c974] text-[#0F111A] text-xs font-mono font-bold tracking-tight shadow-xs transition-all mt-2 cursor-pointer"
+          >
+            <Upload size={14} className="stroke-[2.5]" />
+            <span>+ UPLOAD MANGA PERTAMA</span>
+          </button>
         </div>
       ) : (
         <div className="space-y-3">

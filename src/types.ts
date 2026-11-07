@@ -27,10 +27,15 @@ export interface MusicTrackRecord {
   id?: number;
   title: string;
   fileName: string;
-  fileData: Blob;
+  fileData?: Blob;
   folder: string;
   uploadedAt: string;
   duration?: number;
+  sourceType?: 'local' | 'youtube';
+  youtubeId?: string;
+  thumbnailUrl?: string;
+  artist?: string;
+  channelTitle?: string;
 }
 
 export interface VideoItem {
