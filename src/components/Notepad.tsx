@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FileText,
   Plus,
@@ -17,13 +17,17 @@ import {
   KeyRound,
   Eye,
   EyeOff,
-  Maximize2
+  Maximize2,
+  FolderOpen,
+  UploadCloud,
+  FileUp
 } from 'lucide-react';
 import { NoteItem } from '../types';
 import { INITIAL_NOTES } from '../data/initialNotes';
 
 interface NotepadProps {
   searchQuery?: string;
+  uploadTrigger?: number;
 }
 
 const COLOR_MAP: Record<string, { bg: string; border: string; badge: string; text: string }> = {
@@ -59,7 +63,7 @@ const COLOR_MAP: Record<string, { bg: string; border: string; badge: string; tex
   }
 };
 
-export const Notepad: React.FC<NotepadProps> = ({ searchQuery: externalSearchQuery }) => {
+export const Notepad: React.FC<NotepadProps> = ({ searchQuery: externalSearchQuery, uploadTrigger }) => {
   const [notes, setNotes] = useState<NoteItem[]>(() => {
     try {
       const saved = localStorage.getItem('comic_app_notepad');
@@ -121,6 +125,127 @@ export const Notepad: React.FC<NotepadProps> = ({ searchQuery: externalSearchQue
   // Clipboard & Delete Modal
   const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<NoteItem | null>(null);
+
+  // File Upload (.txt) Refs & Drag-and-Drop state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorFileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [uploadFeedback, setUploadFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  // Trigger file selection if uploadTrigger changes
+  useEffect(() => {
+    if (uploadTrigger && uploadTrigger > 0) {
+      fileInputRef.current?.click();
+    }
+  }, [uploadTrigger]);
+
+  // Handle parsing and importing .txt files from computer
+  const handleProcessTxtFiles = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList).filter((file) => {
+      const isTxtExtension = file.name.toLowerCase().endsWith('.txt');
+      const isTxtMime = file.type === 'text/plain' || file.type === '';
+      return isTxtExtension || isTxtMime;
+    });
+
+    if (files.length === 0) {
+      setUploadFeedback({
+        type: 'error',
+        message: 'Silakan pilih berkas dokumen teks berformat .txt'
+      });
+      setTimeout(() => setUploadFeedback(null), 3500);
+      return;
+    }
+
+    const newNotes: NoteItem[] = [];
+    for (const file of files) {
+      try {
+        const text = await file.text();
+        const cleanTitle = file.name.replace(/\.[^/.]+$/, '').trim() || 'Catatan Dokumen';
+
+        // Auto-detect category from filename and content
+        const lowerSearch = (cleanTitle + ' ' + text.slice(0, 150)).toLowerCase();
+        let category: NoteItem['category'] = 'Umum';
+        let color: NoteItem['color'] = 'emerald';
+
+        if (
+          lowerSearch.includes('wishlist') ||
+          lowerSearch.includes('beli') ||
+          lowerSearch.includes('toko') ||
+          lowerSearch.includes('harga')
+        ) {
+          category = 'Wishlist';
+          color = 'emerald';
+        } else if (
+          lowerSearch.includes('review') ||
+          lowerSearch.includes('ulasan') ||
+          lowerSearch.includes('rating') ||
+          lowerSearch.includes('sinopsis')
+        ) {
+          category = 'Review';
+          color = 'blue';
+        } else if (
+          lowerSearch.includes('komik') ||
+          lowerSearch.includes('manga') ||
+          lowerSearch.includes('vol') ||
+          lowerSearch.includes('ch')
+        ) {
+          category = 'Komik';
+          color = 'amber';
+        }
+
+        newNotes.push({
+          id: `note-txt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          title: cleanTitle,
+          content: text,
+          category,
+          color,
+          isPinned: false,
+          isLocked: false,
+          createdAt: file.lastModified || Date.now(),
+          updatedAt: file.lastModified || Date.now()
+        });
+      } catch (err) {
+        console.error('Error reading txt file:', err);
+      }
+    }
+
+    if (newNotes.length > 0) {
+      setNotes((prev) => [...newNotes, ...prev]);
+      setUploadFeedback({
+        type: 'success',
+        message:
+          newNotes.length === 1
+            ? `Berhasil membuka berkas "${newNotes[0].title}.txt" ke catatan!`
+            : `Berhasil mengimpor ${newNotes.length} berkas .txt dari komputer!`
+      });
+      setTimeout(() => setUploadFeedback(null), 4000);
+    }
+  };
+
+  // Drag and drop handlers for .txt files
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await handleProcessTxtFiles(e.dataTransfer.files);
+    }
+  };
 
   // Save notes to localStorage
   useEffect(() => {
@@ -438,7 +563,54 @@ export const Notepad: React.FC<NotepadProps> = ({ searchQuery: externalSearchQue
   const colors: Array<NoteItem['color']> = ['emerald', 'blue', 'amber', 'purple', 'rose'];
 
   return (
-    <div className="space-y-4 pb-24 animate-in fade-in duration-200">
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className="relative space-y-4 pb-24 animate-in fade-in duration-200"
+    >
+      {/* Drag & Drop Overlay */}
+      {isDraggingOver && (
+        <div className="fixed inset-0 z-50 bg-[#0F111A]/85 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center border-4 border-dashed border-[#3DDC84] rounded-3xl m-4 pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+          <div className="w-16 h-16 rounded-2xl bg-[#3DDC84]/20 border border-[#3DDC84] text-[#3DDC84] flex items-center justify-center mb-3 shadow-lg shadow-[#3DDC84]/20">
+            <UploadCloud size={32} className="animate-bounce" />
+          </div>
+          <h3 className="text-lg font-bold font-mono text-white uppercase">
+            Lepaskan File .txt di Sini
+          </h3>
+          <p className="text-xs text-slate-300 font-sans mt-1 max-w-sm">
+            Berkas dokumen teks akan langsung dimuat dan disimpan ke dalam koleksi catatan Anda.
+          </p>
+        </div>
+      )}
+
+      {/* Upload Feedback Toast / Banner */}
+      {uploadFeedback && (
+        <div
+          className={`p-3 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-mono animate-in fade-in slide-in-from-top-2 duration-200 ${
+            uploadFeedback.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-[#3DDC84]'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {uploadFeedback.type === 'success' ? (
+              <Check size={16} className="text-[#3DDC84] shrink-0" />
+            ) : (
+              <X size={16} className="text-rose-500 shrink-0" />
+            )}
+            <span>{uploadFeedback.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUploadFeedback(null)}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Top Banner / Actions */}
       <div className="bg-white dark:bg-[#161925] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -456,13 +628,39 @@ export const Notepad: React.FC<NotepadProps> = ({ searchQuery: externalSearchQue
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Klik catatan untuk baca full • Mendukung kunci privasi dengan password/PIN
+                Klik catatan untuk baca full • Buka/upload file .txt dari komputer • Proteksi PIN
               </p>
             </div>
           </div>
 
-          {/* Top Actions: Master PIN & New Note */}
+          {/* Top Actions: Master PIN, Upload TXT, & New Note */}
           <div className="flex items-center gap-2 w-full sm:w-auto">
+            {/* Hidden file input for opening .txt files */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".txt,text/plain"
+              multiple
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleProcessTxtFiles(e.target.files);
+                  e.target.value = '';
+                }
+              }}
+              className="hidden"
+            />
+
+            <button
+              id="btn-upload-txt-main"
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title="Buka atau Unggah File .txt dari Komputer"
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#12141F] dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono font-medium text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+            >
+              <FolderOpen size={15} className="text-[#3DDC84]" />
+              <span>Buka .txt</span>
+            </button>
+
             <button
               id="btn-settings-pin"
               type="button"
@@ -527,16 +725,25 @@ export const Notepad: React.FC<NotepadProps> = ({ searchQuery: externalSearchQue
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {activeSearch
                 ? `Tidak ditemukan catatan dengan kata kunci "${activeSearch}".`
-                : 'Mulai buat catatan wishlist komik atau review buku favorit Anda.'}
+                : 'Mulai buat catatan baru atau buka berkas .txt dari komputer Anda.'}
             </p>
           </div>
-          <button
-            onClick={handleOpenAdd}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#3DDC84] text-[#0F111A] text-xs font-bold font-mono hover:bg-[#32c974] transition-all cursor-pointer"
-          >
-            <Plus size={15} />
-            <span>Tambah Catatan</span>
-          </button>
+          <div className="flex items-center justify-center gap-2 flex-wrap pt-1">
+            <button
+              onClick={handleOpenAdd}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#3DDC84] text-[#0F111A] text-xs font-bold font-mono hover:bg-[#32c974] transition-all cursor-pointer shadow-xs"
+            >
+              <Plus size={15} />
+              <span>Tambah Catatan</span>
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#12141F] dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold font-mono transition-all cursor-pointer"
+            >
+              <FolderOpen size={15} className="text-[#3DDC84]" />
+              <span>Buka File .txt dari Komputer</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -965,38 +1172,72 @@ export const Notepad: React.FC<NotepadProps> = ({ searchQuery: externalSearchQue
 
             {/* Modal Body */}
             <form onSubmit={handleSaveNote} className="p-5 space-y-4 overflow-y-auto flex-1">
-              {/* Quick Template Buttons (only for new note) */}
-              {!editingNote && (
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                    <Sparkles size={12} className="text-amber-500" />
-                    Template Cepat:
-                  </span>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => handleInsertTemplate('wishlist')}
-                      className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-emerald-500/10 text-emerald-700 dark:text-[#3DDC84] border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors cursor-pointer"
-                    >
-                      + Wishlist Belanja
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleInsertTemplate('review')}
-                      className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-colors cursor-pointer"
-                    >
-                      + Review Komik
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleInsertTemplate('volumes')}
-                      className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-colors cursor-pointer"
-                    >
-                      + Checklist Volume
-                    </button>
-                  </div>
+              {/* Hidden input for loading .txt into editor */}
+              <input
+                type="file"
+                ref={editorFileInputRef}
+                accept=".txt,text/plain"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const text = await file.text();
+                    const cleanTitle = file.name.replace(/\.[^/.]+$/, '').trim();
+                    if (!formTitle.trim()) {
+                      setFormTitle(cleanTitle);
+                    }
+                    setFormContent((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
+                  } catch (err) {
+                    console.error('Error importing file in editor:', err);
+                  }
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+
+              {/* Quick Template and Import Buttons */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <Sparkles size={12} className="text-amber-500" />
+                  Alat Cepat:
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => editorFileInputRef.current?.click()}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-[#3DDC84]/15 text-[#0F111A] dark:text-[#3DDC84] font-bold border border-[#3DDC84]/35 hover:bg-[#3DDC84]/25 transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <FolderOpen size={12} />
+                    <span>Buka File .txt</span>
+                  </button>
+
+                  {!editingNote && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTemplate('wishlist')}
+                        className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-emerald-500/10 text-emerald-700 dark:text-[#3DDC84] border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                      >
+                        + Wishlist
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTemplate('review')}
+                        className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-colors cursor-pointer"
+                      >
+                        + Review
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTemplate('volumes')}
+                        className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                      >
+                        + Checklist
+                      </button>
+                    </>
+                  )}
                 </div>
-              )}
+              </div>
 
               {/* Title input */}
               <div className="space-y-1.5">

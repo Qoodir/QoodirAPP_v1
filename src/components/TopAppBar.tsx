@@ -8,7 +8,8 @@ import {
   Disc,
   Plus,
   BarChart3,
-  Search
+  Search,
+  FileText
 } from 'lucide-react';
 import { FloatingMusicPlayer } from './FloatingMusicPlayer';
 import { MusicTrackRecord } from '../types';
@@ -21,6 +22,7 @@ interface TopAppBarProps {
   onOpenUploadManga: () => void;
   onOpenUploadMusic: () => void;
   onOpenUploadVideo: () => void;
+  onOpenUploadTxt?: () => void;
   onOpenStats?: () => void;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
@@ -42,6 +44,7 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
   onOpenUploadManga,
   onOpenUploadMusic,
   onOpenUploadVideo,
+  onOpenUploadTxt,
   onOpenStats,
   searchQuery = '',
   onSearchChange = (_query: string) => {},
@@ -172,6 +175,24 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
                   <div>
                     <div className="font-bold">Buka / Upload Video</div>
                     <div className="text-[10px] text-slate-400">Direktori USB atau file</div>
+                  </div>
+                </button>
+
+                <button
+                  id="menu-item-upload-txt"
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    onOpenUploadTxt?.();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-left transition-colors cursor-pointer"
+                >
+                  <div className="w-6 h-6 rounded-md bg-emerald-500/10 text-[#3DDC84] flex items-center justify-center shrink-0">
+                    <FileText size={13} />
+                  </div>
+                  <div>
+                    <div className="font-bold">Buka / Upload File .txt</div>
+                    <div className="text-[10px] text-slate-400">Berkas catatan dari komputer</div>
                   </div>
                 </button>
 

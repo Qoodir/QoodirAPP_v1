@@ -62,6 +62,7 @@ export default function App() {
   const [isUploadMangaOpen, setIsUploadMangaOpen] = useState(false);
   const [isUploadMusicOpen, setIsUploadMusicOpen] = useState(false);
   const [isUploadVideoOpen, setIsUploadVideoOpen] = useState(false);
+  const [uploadTxtTrigger, setUploadTxtTrigger] = useState(0);
 
   // Manga Files
   const [mangaFiles, setMangaFiles] = useState<MangaFileRecord[]>([]);
@@ -528,6 +529,10 @@ export default function App() {
           switchTab('video');
           setIsUploadVideoOpen(true);
         }}
+        onOpenUploadTxt={() => {
+          switchTab('notepad');
+          setUploadTxtTrigger((prev) => prev + 1);
+        }}
         onOpenStats={() => setIsStatsModalOpen(true)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -611,7 +616,7 @@ export default function App() {
           )}
 
           {activeTab === 'notepad' && (
-            <Notepad searchQuery={searchQuery} />
+            <Notepad searchQuery={searchQuery} uploadTrigger={uploadTxtTrigger} />
           )}
         </div>
       </main>
